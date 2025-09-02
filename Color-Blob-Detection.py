@@ -25,6 +25,12 @@ class ColorBlobDetector:
         self.crop_width = 860    # Crop width
         self.crop_height = 860   # Crop height
         
+        # Camera settings for overlay
+        self.camera_aperture = "f/11"       # Aperture setting
+        self.camera_shutter = "1/4000"      # Shutter speed
+        self.camera_iso = "ISO 51200"       # ISO setting
+        self.show_camera_info = True        # Show camera settings on overlay
+        
     def hex_to_bgr(self, hex_color):
         """Convert hex color to BGR format"""
         hex_color = hex_color.lstrip('#')
@@ -145,19 +151,22 @@ class ColorBlobDetector:
         return result_frame
     
     def start_recording(self, frame_width, frame_height):
-        """Start video recording"""
+        """Start video recording with dynamic FPS based on actual processing rate"""
         if not self.recording:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             filename = f"color_detection_{timestamp}.avi"  # Use .avi for XVID
             
-            # Use more compatible codec and ensure frame rate matches
+            # Use more compatible codec
             fourcc = cv2.VideoWriter_fourcc(*'XVID')  # XVID codec for better compatibility
             
-            # Create video writer with exact frame rate
+            # Start with target frame rate, but will be updated dynamically
+            initial_fps = max(10, min(30, self.actual_fps if self.actual_fps > 0 else self.frame_rate))
+            
+            # Create video writer with initial frame rate
             self.video_writer = cv2.VideoWriter(
                 filename, 
                 fourcc, 
-                float(self.frame_rate),  # Ensure float type
+                float(initial_fps),  # Start with estimated FPS
                 (frame_width, frame_height)
             )
             
@@ -168,21 +177,24 @@ class ColorBlobDetector:
             self.recording = True
             self.frame_count = 0
             self.fps_start_time = time.time()
-            print(f"Started recording: {filename} at {self.frame_rate} FPS")
-            print(f"Recording will maintain precise {self.frame_rate} FPS timing")
+            print(f"Started recording: {filename}")
+            print(f"Recording at actual processing rate (currently ~{initial_fps:.1f} FPS)")
+            print("Recording FPS will adapt to actual processing performance")
     
     def stop_recording(self):
         """Stop video recording"""
         if self.recording and self.video_writer:
             # Calculate actual recording FPS
             recording_duration = time.time() - self.fps_start_time
-            actual_fps = self.frame_count / recording_duration if recording_duration > 0 else 0
+            actual_recording_fps = self.frame_count / recording_duration if recording_duration > 0 else 0
             
             self.video_writer.release()
             self.video_writer = None
             self.recording = False
             print(f"Recording stopped. Recorded {self.frame_count} frames in {recording_duration:.2f}s")
-            print(f"Target FPS: {self.frame_rate}, Actual FPS: {actual_fps:.2f}")
+            print(f"Actual recorded FPS: {actual_recording_fps:.2f}")
+            print(f"Processing FPS during recording: {self.actual_fps:.2f}")
+            print("Video saved with natural processing timing (no artificial frame rate control)")
     
     def update_target_color(self, hex_color):
         """Update target color from hex string"""
@@ -223,9 +235,10 @@ class ColorBlobDetector:
         print("- Press 'f' to adjust frame rate (in terminal)")
         print("- Press 'p' to toggle crop mode on/off")
         print("- Press 'o' to adjust crop size (in terminal)")
+        print("- Press 'i' to toggle camera info display")
+        print("- Press 'k' to adjust camera settings (in terminal)")
         
         last_frame_time = time.time()
-        last_record_time = time.time()  # Separate timing for recording
         frame_times = []  # Track frame times for FPS calculation
         
         while True:
@@ -279,28 +292,59 @@ class ColorBlobDetector:
             # Add info text with larger font for HD resolution
             frame_height, frame_width = frame.shape[:2]
             crop_status = f"CROP: {self.crop_width}x{self.crop_height}" if self.enable_crop else "CROP: OFF"
+            
+            # Main info text
             info_text = [
                 f"Target Color: {self.target_color_hex}",
                 f"HSV Tolerance: H:{self.hue_tolerance}, S:{self.saturation_tolerance}, V:{self.value_tolerance}",
                 f"Min Area: {self.min_area}, Max Area: {self.max_area}",
                 f"Blobs Found: {len(blobs)}",
-                f"Target FPS: {self.frame_rate}, Actual: {self.actual_fps:.1f}",
+                f"Processing FPS: {self.actual_fps:.1f} (Target: {self.frame_rate})",
                 f"Resolution: {frame_width}x{frame_height}",
                 crop_status
             ]
             
+            # Camera settings info (displayed separately)
+            camera_info = []
+            if self.show_camera_info:
+                camera_info = [
+                    f"Camera Settings:",
+                    f"Aperture: {self.camera_aperture}",
+                    f"Shutter: {self.camera_shutter}",
+                    f"ISO: {self.camera_iso}"
+                ]
+            
             if self.recording:
-                info_text.append("RECORDING")
+                recording_duration = time.time() - self.fps_start_time
+                recorded_fps = self.frame_count / recording_duration if recording_duration > 0 and self.frame_count > 0 else 0
+                info_text.append(f"Frames: {self.frame_count}, FPS: {recorded_fps:.1f}")
             
             # Use larger font and spacing for HD resolution
             font_scale = 0.8
             text_thickness = 2
             line_spacing = 35
             
+            # Draw main info text (left side)
             for i, text in enumerate(info_text):
                 color = (0, 0, 255) if "RECORDING" in text else (255, 255, 255)
                 cv2.putText(result_frame, text, (15, 40 + i * line_spacing),
                            cv2.FONT_HERSHEY_SIMPLEX, font_scale, color, text_thickness)
+            
+            # Draw camera settings (bottom-left corner)
+            if camera_info:
+                camera_start_y = frame_height - (len(camera_info) * 30 + 20)  # Position from bottom
+                
+                # Add semi-transparent background for camera info
+                overlay = result_frame.copy()
+                cv2.rectangle(overlay, (10, camera_start_y - 15), 
+                             (350, frame_height - 10), (0, 0, 0), -1)
+                cv2.addWeighted(overlay, 0.7, result_frame, 0.3, 0, result_frame)
+                
+                for i, text in enumerate(camera_info):
+                    color = (0, 255, 255) if i == 0 else (255, 255, 255)  # Yellow for title, white for values
+                    weight = 2 if i == 0 else 1  # Bold for title
+                    cv2.putText(result_frame, text, (20, camera_start_y + i * 25),
+                               cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, weight)
             
             # Show mask in larger window for HD resolution  
             mask_width = 320
@@ -326,13 +370,11 @@ class ColorBlobDetector:
             cv2.putText(result_frame, mask_title, (mask_x, mask_y + mask_height + 25),
                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
             
-            # Record frame if recording with precise timing
+            # Record frame if recording (record every processed frame)
             if self.recording and self.video_writer:
-                # Check if enough time has passed for recording the next frame
-                if current_time - last_record_time >= self.frame_time:
-                    self.video_writer.write(result_frame)
-                    self.frame_count += 1  # Count recorded frames
-                    last_record_time = current_time
+                # Record every frame that gets processed (no timing restriction)
+                self.video_writer.write(result_frame)
+                self.frame_count += 1  # Count recorded frames
             
             # Display frame (resize for comfortable viewing if too large)
             display_frame = result_frame.copy()
@@ -447,6 +489,43 @@ class ColorBlobDetector:
                         print(f"Crop size updated to: {self.crop_width}x{self.crop_height}")
                     else:
                         print("Invalid crop size. Width and height must be positive and within camera resolution.")
+                except:
+                    print("Input cancelled or invalid")
+            elif key == ord('i'):
+                self.show_camera_info = not self.show_camera_info
+                status = "ON" if self.show_camera_info else "OFF"
+                print(f"Camera info display: {status}")
+            elif key == ord('k'):
+                print("\nPause detection. Adjusting camera settings:")
+                cv2.waitKey(100)  # Small delay
+                try:
+                    print("Enter camera settings (press Enter to keep current value):")
+                    
+                    aperture_input = input(f"Aperture (current: {self.camera_aperture}): ").strip()
+                    if aperture_input:
+                        # Add f/ prefix if not present
+                        if not aperture_input.startswith('f/'):
+                            aperture_input = f"f/{aperture_input}"
+                        self.camera_aperture = aperture_input
+                    
+                    shutter_input = input(f"Shutter speed (current: {self.camera_shutter}): ").strip()
+                    if shutter_input:
+                        # Add 1/ prefix for fractional speeds if just number is entered
+                        if shutter_input.isdigit() and int(shutter_input) > 10:
+                            shutter_input = f"1/{shutter_input}"
+                        self.camera_shutter = shutter_input
+                    
+                    iso_input = input(f"ISO (current: {self.camera_iso}): ").strip()
+                    if iso_input:
+                        # Add ISO prefix if not present
+                        if not iso_input.upper().startswith('ISO'):
+                            iso_input = f"ISO {iso_input}"
+                        self.camera_iso = iso_input
+                    
+                    print(f"Camera settings updated:")
+                    print(f"  Aperture: {self.camera_aperture}")
+                    print(f"  Shutter: {self.camera_shutter}")
+                    print(f"  ISO: {self.camera_iso}")
                 except:
                     print("Input cancelled or invalid")
         
