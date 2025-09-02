@@ -1,0 +1,303 @@
+import cv2
+import numpy as np
+import time
+from datetime import datetime
+
+class ColorBlobDetector:
+    def __init__(self):
+        self.target_color_hex = "#5BC14B"  # Default green color
+        self.color_tolerance = 30  # Tolerance for color detection
+        self.min_area = 4200  # Minimum area for blob detection (increased for HD)
+        self.max_area = 5400  # Maximum area for blob detection (increased for HD)
+        self.recording = False
+        self.video_writer = None
+        self.frame_rate = 24
+        self.frame_time = 1.0 / self.frame_rate
+        
+    def hex_to_bgr(self, hex_color):
+        """Convert hex color to BGR format"""
+        hex_color = hex_color.lstrip('#')
+        rgb = tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))
+        # Convert RGB to BGR for OpenCV
+        return (rgb[2], rgb[1], rgb[0])
+    
+    def create_color_mask(self, frame, target_bgr, tolerance):
+        """Create mask for target color with tolerance"""
+        # Convert frame to HSV for better color detection
+        hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+        
+        # Convert target BGR to HSV
+        target_bgr_array = np.uint8([[target_bgr]])
+        target_hsv = cv2.cvtColor(target_bgr_array, cv2.COLOR_BGR2HSV)[0][0]
+        
+        # Define range of target color in HSV
+        lower_bound = np.array([
+            max(0, target_hsv[0] - tolerance),
+            max(0, target_hsv[1] - tolerance),
+            max(0, target_hsv[2] - tolerance)
+        ], dtype=np.uint8)
+        upper_bound = np.array([
+            min(179, target_hsv[0] + tolerance),
+            255,
+            255
+        ], dtype=np.uint8)
+        
+        # Create mask
+        mask = cv2.inRange(hsv, lower_bound, upper_bound)
+        return mask
+    
+    def detect_blobs(self, frame, mask):
+        """Detect blobs in the mask and return contours with areas"""
+        # Find contours
+        contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        
+        valid_blobs = []
+        for contour in contours:
+            area = cv2.contourArea(contour)
+            if self.min_area <= area <= self.max_area:
+                # Get center point and radius
+                (x, y), radius = cv2.minEnclosingCircle(contour)
+                center = (int(x), int(y))
+                radius = int(radius)
+                valid_blobs.append({
+                    'contour': contour,
+                    'area': area,
+                    'center': center,
+                    'radius': radius
+                })
+        
+        return valid_blobs
+    
+    def draw_detections(self, frame, blobs, target_bgr):
+        """Draw detection results on frame"""
+        result_frame = frame.copy()
+        
+        for blob in blobs:
+            # Draw contour in target color (thicker for HD)
+            cv2.drawContours(result_frame, [blob['contour']], -1, target_bgr, 3)
+            
+            # Draw blue circle at center (larger for HD)
+            cv2.circle(result_frame, blob['center'], 8, (255, 0, 0), -1)
+            
+            # Draw larger circle outline (thicker for HD)
+            cv2.circle(result_frame, blob['center'], blob['radius'], (255, 0, 0), 3)
+            
+            # Display area text with larger font for HD
+            text = f"Area: {blob['area']:.0f}"
+            text_size = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, 0.7, 2)[0]
+            text_x = blob['center'][0] - text_size[0] // 2
+            text_y = blob['center'][1] - blob['radius'] - 15
+            
+            # Add background rectangle for better text visibility
+            cv2.rectangle(result_frame, 
+                         (text_x - 5, text_y - text_size[1] - 5),
+                         (text_x + text_size[0] + 5, text_y + 5),
+                         (0, 0, 0), -1)
+            
+            cv2.putText(result_frame, text, (text_x, text_y),
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+        
+        return result_frame
+    
+    def start_recording(self, frame_width, frame_height):
+        """Start video recording"""
+        if not self.recording:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = f"color_detection_{timestamp}.mp4"
+            fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+            self.video_writer = cv2.VideoWriter(filename, fourcc, self.frame_rate, 
+                                              (frame_width, frame_height))
+            self.recording = True
+            print(f"Started recording: {filename}")
+    
+    def stop_recording(self):
+        """Stop video recording"""
+        if self.recording and self.video_writer:
+            self.video_writer.release()
+            self.video_writer = None
+            self.recording = False
+            print("Recording stopped")
+    
+    def update_target_color(self, hex_color):
+        """Update target color from hex string"""
+        try:
+            self.target_color_hex = hex_color
+            print(f"Target color updated to: {hex_color}")
+        except ValueError:
+            print("Invalid hex color format. Use #RRGGBB format.")
+    
+    def run(self):
+        """Main detection loop"""
+        cap = cv2.VideoCapture(0)
+        
+        if not cap.isOpened():
+            print("Error: Could not open camera")
+            return
+        
+        # Set camera resolution to 1920x1080
+        cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1920)
+        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 1080)
+        
+        # Verify the resolution
+        actual_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        actual_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        print(f"Camera resolution set to: {actual_width}x{actual_height}")
+        
+        print("Color Blob Detector Started!")
+        print("Controls:")
+        print("- Press 'q' to quit")
+        print("- Press 'r' to start/stop recording")
+        print("- Press 'c' to change target color (in terminal)")
+        print("- Press '+' to increase color tolerance")
+        print("- Press '-' to decrease color tolerance")
+        print("- Press 'a' to adjust area thresholds (in terminal)")
+        print("- Press 'f' to adjust frame rate (in terminal)")
+        
+        last_frame_time = time.time()
+        
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                print("Failed to grab frame")
+                break
+            
+            # Frame rate control
+            current_time = time.time()
+            if current_time - last_frame_time < self.frame_time:
+                continue
+            last_frame_time = current_time
+            
+            # Get target color in BGR
+            target_bgr = self.hex_to_bgr(self.target_color_hex)
+            
+            # Create mask for target color
+            mask = self.create_color_mask(frame, target_bgr, self.color_tolerance)
+            
+            # Detect blobs
+            blobs = self.detect_blobs(frame, mask)
+            
+            # Draw detections
+            result_frame = self.draw_detections(frame, blobs, target_bgr)
+            
+            # Add info text with larger font for HD resolution
+            frame_height, frame_width = frame.shape[:2]
+            info_text = [
+                f"Target Color: {self.target_color_hex}",
+                f"Tolerance: {self.color_tolerance}",
+                f"Min Area: {self.min_area}, Max Area: {self.max_area}",
+                f"Blobs Found: {len(blobs)}",
+                f"Frame Rate: {self.frame_rate} FPS",
+                f"Resolution: {frame_width}x{frame_height}"
+            ]
+            
+            if self.recording:
+                info_text.append("RECORDING")
+            
+            # Use larger font and spacing for HD resolution
+            font_scale = 0.8
+            text_thickness = 2
+            line_spacing = 35
+            
+            for i, text in enumerate(info_text):
+                color = (0, 0, 255) if "RECORDING" in text else (255, 255, 255)
+                cv2.putText(result_frame, text, (15, 40 + i * line_spacing),
+                           cv2.FONT_HERSHEY_SIMPLEX, font_scale, color, text_thickness)
+            
+            # Show mask in larger window for HD resolution  
+            mask_width = 320
+            mask_height = 240
+            mask_small = cv2.resize(mask, (mask_width, mask_height))
+            mask_colored = cv2.cvtColor(mask_small, cv2.COLOR_GRAY2BGR)
+            
+            # Position mask in top-right corner
+            mask_x = frame.shape[1] - mask_width - 15
+            mask_y = 15
+            result_frame[mask_y:mask_y+mask_height, mask_x:mask_x+mask_width] = mask_colored
+            
+            cv2.putText(result_frame, "Color Mask", (mask_x, mask_y + mask_height + 25),
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+            
+            # Record frame if recording
+            if self.recording and self.video_writer:
+                self.video_writer.write(result_frame)
+            
+            # Display frame (resize for comfortable viewing if too large)
+            display_frame = result_frame.copy()
+            display_height, display_width = display_frame.shape[:2]
+            
+            # If frame is too large for screen, resize for display only
+            max_display_width = 1280
+            max_display_height = 720
+            
+            if display_width > max_display_width or display_height > max_display_height:
+                scale = min(max_display_width/display_width, max_display_height/display_height)
+                new_width = int(display_width * scale)
+                new_height = int(display_height * scale)
+                display_frame = cv2.resize(display_frame, (new_width, new_height))
+                
+            cv2.imshow('Color Blob Detection', display_frame)
+            
+            # Handle key presses
+            key = cv2.waitKey(1) & 0xFF
+            
+            if key == ord('q'):
+                break
+            elif key == ord('r'):
+                if self.recording:
+                    self.stop_recording()
+                else:
+                    self.start_recording(frame.shape[1], frame.shape[0])
+            elif key == ord('c'):
+                print("\nPause detection. Enter new hex color (e.g., #FF0000):")
+                cv2.waitKey(100)  # Small delay
+                try:
+                    new_color = input("Color: ")
+                    if new_color.startswith('#') and len(new_color) == 7:
+                        self.update_target_color(new_color)
+                    else:
+                        print("Invalid format. Use #RRGGBB")
+                except:
+                    print("Input cancelled or invalid")
+            elif key == ord('+') or key == ord('='):
+                self.color_tolerance = min(100, self.color_tolerance + 5)
+                print(f"Color tolerance increased to: {self.color_tolerance}")
+            elif key == ord('-'):
+                self.color_tolerance = max(5, self.color_tolerance - 5)
+                print(f"Color tolerance decreased to: {self.color_tolerance}")
+            elif key == ord('a'):
+                print("\nPause detection. Adjusting area thresholds:")
+                cv2.waitKey(100)  # Small delay
+                try:
+                    new_min = int(input(f"Current min area: {self.min_area}. Enter new min area: "))
+                    new_max = int(input(f"Current max area: {self.max_area}. Enter new max area: "))
+                    if new_min < new_max:
+                        self.min_area = new_min
+                        self.max_area = new_max
+                        print(f"Area thresholds updated: {self.min_area} - {self.max_area}")
+                    else:
+                        print("Min area must be less than max area")
+                except:
+                    print("Input cancelled or invalid")
+            elif key == ord('f'):
+                print("\nPause detection. Adjusting frame rate:")
+                cv2.waitKey(100)  # Small delay
+                try:
+                    new_fps = int(input(f"Current frame rate: {self.frame_rate}. Enter new FPS (1-60): "))
+                    if 1 <= new_fps <= 60:
+                        self.frame_rate = new_fps
+                        self.frame_time = 1.0 / self.frame_rate
+                        print(f"Frame rate updated to: {self.frame_rate} FPS")
+                    else:
+                        print("Frame rate must be between 1 and 60")
+                except:
+                    print("Input cancelled or invalid")
+        
+        # Cleanup
+        self.stop_recording()
+        cap.release()
+        cv2.destroyAllWindows()
+        print("Program ended")
+
+if __name__ == "__main__":
+    detector = ColorBlobDetector()
+    detector.run()
