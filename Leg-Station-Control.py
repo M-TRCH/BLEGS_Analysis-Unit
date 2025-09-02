@@ -38,7 +38,7 @@ def run_triangle_path(points=None, delay=0.3):
             time.sleep(delay)
 
 # กำหนด serial port และ baudrate
-ser = serial.Serial('COM11', 9600, timeout=1)  # เปลี่ยน 'COM3' ตามเครื่องของคุณ
+ser = serial.Serial('COM11', 9600, timeout=1)  # เปลี่ยน 'COM' ตามเครื่องของคุณ
 
 run_triangle_path(points= [(-50, -150), (0, -50), (80, -150)], delay=0.2)
 
