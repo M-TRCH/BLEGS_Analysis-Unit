@@ -5,13 +5,16 @@ from datetime import datetime
 
 class ColorBlobDetector:
     def __init__(self):
-        self.target_color_hex = "#5BC14B"  # Default green color
-        self.color_tolerance = 30  # Tolerance for color detection
-        self.min_area = 4200  # Minimum area for blob detection (increased for HD)
-        self.max_area = 5400  # Maximum area for blob detection (increased for HD)
+        self.target_color_hex = "#3B9325"  # Default green color
+        self.color_tolerance = 40  # Tolerance for color detection
+        self.hue_tolerance = 15  # Hue tolerance (0-179)
+        self.saturation_tolerance = 50  # Saturation tolerance (0-255)
+        self.value_tolerance = 50  # Value tolerance (0-255)
+        self.min_area = 3800  # Minimum area for blob detection (increased for HD)
+        self.max_area = 6500  # Maximum area for blob detection (increased for HD)
         self.recording = False
         self.video_writer = None
-        self.frame_rate = 24
+        self.frame_rate = 60
         self.frame_time = 1.0 / self.frame_rate
         
     def hex_to_bgr(self, hex_color):
@@ -30,16 +33,16 @@ class ColorBlobDetector:
         target_bgr_array = np.uint8([[target_bgr]])
         target_hsv = cv2.cvtColor(target_bgr_array, cv2.COLOR_BGR2HSV)[0][0]
         
-        # Define range of target color in HSV
+        # Define range of target color in HSV with separate tolerances
         lower_bound = np.array([
-            max(0, target_hsv[0] - tolerance),
-            max(0, target_hsv[1] - tolerance),
-            max(0, target_hsv[2] - tolerance)
+            max(0, target_hsv[0] - self.hue_tolerance),
+            max(0, target_hsv[1] - self.saturation_tolerance),
+            max(0, target_hsv[2] - self.value_tolerance)
         ], dtype=np.uint8)
         upper_bound = np.array([
-            min(179, target_hsv[0] + tolerance),
-            255,
-            255
+            min(179, target_hsv[0] + self.hue_tolerance),
+            min(255, target_hsv[1] + self.saturation_tolerance),
+            min(255, target_hsv[2] + self.value_tolerance)
         ], dtype=np.uint8)
         
         # Create mask
@@ -103,7 +106,7 @@ class ColorBlobDetector:
         """Start video recording"""
         if not self.recording:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            filename = f"color_detection_{timestamp}.mp4"
+            filename = f"color_detection_{timestamp}.mp4" 
             fourcc = cv2.VideoWriter_fourcc(*'mp4v')
             self.video_writer = cv2.VideoWriter(filename, fourcc, self.frame_rate, 
                                               (frame_width, frame_height))
@@ -148,8 +151,11 @@ class ColorBlobDetector:
         print("- Press 'q' to quit")
         print("- Press 'r' to start/stop recording")
         print("- Press 'c' to change target color (in terminal)")
-        print("- Press '+' to increase color tolerance")
-        print("- Press '-' to decrease color tolerance")
+        print("- Press 'h'/'H' to decrease/increase hue tolerance")
+        print("- Press 's'/'S' to decrease/increase saturation tolerance")
+        print("- Press 'v'/'V' to decrease/increase value tolerance")
+        print("- Press '+' to increase color tolerance (all HSV)")
+        print("- Press '-' to decrease color tolerance (all HSV)")
         print("- Press 'a' to adjust area thresholds (in terminal)")
         print("- Press 'f' to adjust frame rate (in terminal)")
         
@@ -183,7 +189,7 @@ class ColorBlobDetector:
             frame_height, frame_width = frame.shape[:2]
             info_text = [
                 f"Target Color: {self.target_color_hex}",
-                f"Tolerance: {self.color_tolerance}",
+                f"HSV Tolerance: H:{self.hue_tolerance}, S:{self.saturation_tolerance}, V:r{self.value_tolerance}",
                 f"Min Area: {self.min_area}, Max Area: {self.max_area}",
                 f"Blobs Found: {len(blobs)}",
                 f"Frame Rate: {self.frame_rate} FPS",
@@ -260,10 +266,34 @@ class ColorBlobDetector:
                     print("Input cancelled or invalid")
             elif key == ord('+') or key == ord('='):
                 self.color_tolerance = min(100, self.color_tolerance + 5)
-                print(f"Color tolerance increased to: {self.color_tolerance}")
+                self.hue_tolerance = min(90, self.hue_tolerance + 3)
+                self.saturation_tolerance = min(100, self.saturation_tolerance + 10)
+                self.value_tolerance = min(100, self.value_tolerance + 10)
+                print(f"All tolerances increased: H±{self.hue_tolerance}, S±{self.saturation_tolerance}, V±{self.value_tolerance}")
             elif key == ord('-'):
                 self.color_tolerance = max(5, self.color_tolerance - 5)
-                print(f"Color tolerance decreased to: {self.color_tolerance}")
+                self.hue_tolerance = max(5, self.hue_tolerance - 3)
+                self.saturation_tolerance = max(10, self.saturation_tolerance - 10)
+                self.value_tolerance = max(10, self.value_tolerance - 10)
+                print(f"All tolerances decreased: H±{self.hue_tolerance}, S±{self.saturation_tolerance}, V±{self.value_tolerance}")
+            elif key == ord('h'):
+                self.hue_tolerance = max(5, self.hue_tolerance - 3)
+                print(f"Hue tolerance decreased to: ±{self.hue_tolerance}")
+            elif key == ord('H'):
+                self.hue_tolerance = min(90, self.hue_tolerance + 3)
+                print(f"Hue tolerance increased to: ±{self.hue_tolerance}")
+            elif key == ord('s'):
+                self.saturation_tolerance = max(10, self.saturation_tolerance - 10)
+                print(f"Saturation tolerance decreased to: ±{self.saturation_tolerance}")
+            elif key == ord('S'):
+                self.saturation_tolerance = min(100, self.saturation_tolerance + 10)
+                print(f"Saturation tolerance increased to: ±{self.saturation_tolerance}")
+            elif key == ord('v'):
+                self.value_tolerance = max(10, self.value_tolerance - 10)
+                print(f"Value tolerance decreased to: ±{self.value_tolerance}")
+            elif key == ord('V'):
+                self.value_tolerance = min(100, self.value_tolerance + 10)
+                print(f"Value tolerance increased to: ±{self.value_tolerance}")
             elif key == ord('a'):
                 print("\nPause detection. Adjusting area thresholds:")
                 cv2.waitKey(100)  # Small delay

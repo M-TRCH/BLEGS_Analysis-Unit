@@ -1,7 +1,6 @@
 import serial
 import time
 
-
 def send_position(x, y):
     cmd = f"# {x} {y}\n"
     ser.write(cmd.encode())
