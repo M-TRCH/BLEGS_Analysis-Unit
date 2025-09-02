@@ -14,8 +14,16 @@ class ColorBlobDetector:
         self.max_area = 6500  # Maximum area for blob detection (increased for HD)
         self.recording = False
         self.video_writer = None
-        self.frame_rate = 60
+        self.frame_rate = 24  # Reduced for better stability
         self.frame_time = 1.0 / self.frame_rate
+        self.actual_fps = 0  # Track actual FPS
+        self.frame_count = 0
+        self.fps_start_time = time.time()
+        
+        # Crop settings
+        self.enable_crop = True  # Enable/disable cropping
+        self.crop_width = 860    # Crop width
+        self.crop_height = 860   # Crop height
         
     def hex_to_bgr(self, hex_color):
         """Convert hex color to BGR format"""
@@ -23,6 +31,26 @@ class ColorBlobDetector:
         rgb = tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))
         # Convert RGB to BGR for OpenCV
         return (rgb[2], rgb[1], rgb[0])
+    
+    def crop_center(self, frame):
+        """Crop center region of the frame"""
+        if not self.enable_crop:
+            return frame, 0, 0  # Return original frame with zero offsets
+            
+        height, width = frame.shape[:2]
+        
+        # Calculate crop dimensions (ensure they don't exceed frame size)
+        crop_w = min(self.crop_width, width)
+        crop_h = min(self.crop_height, height)
+        
+        # Calculate center crop coordinates
+        start_x = (width - crop_w) // 2
+        start_y = (height - crop_h) // 2
+        
+        # Crop the frame
+        cropped_frame = frame[start_y:start_y + crop_h, start_x:start_x + crop_w]
+        
+        return cropped_frame, start_x, start_y
     
     def create_color_mask(self, frame, target_bgr, tolerance):
         """Create mask for target color with tolerance"""
@@ -49,7 +77,7 @@ class ColorBlobDetector:
         mask = cv2.inRange(hsv, lower_bound, upper_bound)
         return mask
     
-    def detect_blobs(self, frame, mask):
+    def detect_blobs(self, frame, mask, offset_x=0, offset_y=0):
         """Detect blobs in the mask and return contours with areas"""
         # Find contours
         contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
@@ -60,10 +88,16 @@ class ColorBlobDetector:
             if self.min_area <= area <= self.max_area:
                 # Get center point and radius
                 (x, y), radius = cv2.minEnclosingCircle(contour)
-                center = (int(x), int(y))
+                
+                # Adjust coordinates back to original frame if cropped
+                center = (int(x + offset_x), int(y + offset_y))
                 radius = int(radius)
+                
+                # Adjust contour coordinates back to original frame
+                adjusted_contour = contour + np.array([offset_x, offset_y])
+                
                 valid_blobs.append({
-                    'contour': contour,
+                    'contour': adjusted_contour,
                     'area': area,
                     'center': center,
                     'radius': radius
@@ -71,9 +105,17 @@ class ColorBlobDetector:
         
         return valid_blobs
     
-    def draw_detections(self, frame, blobs, target_bgr):
+    def draw_detections(self, frame, blobs, target_bgr, crop_info=None):
         """Draw detection results on frame"""
         result_frame = frame.copy()
+        
+        # Draw crop area outline if cropping is enabled
+        if self.enable_crop and crop_info:
+            crop_x, crop_y, crop_w, crop_h = crop_info
+            cv2.rectangle(result_frame, (crop_x, crop_y), 
+                         (crop_x + crop_w, crop_y + crop_h), (0, 255, 255), 2)
+            cv2.putText(result_frame, f"Crop Area: {crop_w}x{crop_h}", 
+                       (crop_x, crop_y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
         
         for blob in blobs:
             # Draw contour in target color (thicker for HD)
@@ -106,20 +148,41 @@ class ColorBlobDetector:
         """Start video recording"""
         if not self.recording:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            filename = f"color_detection_{timestamp}.mp4" 
-            fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-            self.video_writer = cv2.VideoWriter(filename, fourcc, self.frame_rate, 
-                                              (frame_width, frame_height))
+            filename = f"color_detection_{timestamp}.avi"  # Use .avi for XVID
+            
+            # Use more compatible codec and ensure frame rate matches
+            fourcc = cv2.VideoWriter_fourcc(*'XVID')  # XVID codec for better compatibility
+            
+            # Create video writer with exact frame rate
+            self.video_writer = cv2.VideoWriter(
+                filename, 
+                fourcc, 
+                float(self.frame_rate),  # Ensure float type
+                (frame_width, frame_height)
+            )
+            
+            if not self.video_writer.isOpened():
+                print(f"Error: Could not open video writer for {filename}")
+                return
+                
             self.recording = True
-            print(f"Started recording: {filename}")
+            self.frame_count = 0
+            self.fps_start_time = time.time()
+            print(f"Started recording: {filename} at {self.frame_rate} FPS")
+            print(f"Recording will maintain precise {self.frame_rate} FPS timing")
     
     def stop_recording(self):
         """Stop video recording"""
         if self.recording and self.video_writer:
+            # Calculate actual recording FPS
+            recording_duration = time.time() - self.fps_start_time
+            actual_fps = self.frame_count / recording_duration if recording_duration > 0 else 0
+            
             self.video_writer.release()
             self.video_writer = None
             self.recording = False
-            print("Recording stopped")
+            print(f"Recording stopped. Recorded {self.frame_count} frames in {recording_duration:.2f}s")
+            print(f"Target FPS: {self.frame_rate}, Actual FPS: {actual_fps:.2f}")
     
     def update_target_color(self, hex_color):
         """Update target color from hex string"""
@@ -158,8 +221,12 @@ class ColorBlobDetector:
         print("- Press '-' to decrease color tolerance (all HSV)")
         print("- Press 'a' to adjust area thresholds (in terminal)")
         print("- Press 'f' to adjust frame rate (in terminal)")
+        print("- Press 'p' to toggle crop mode on/off")
+        print("- Press 'o' to adjust crop size (in terminal)")
         
         last_frame_time = time.time()
+        last_record_time = time.time()  # Separate timing for recording
+        frame_times = []  # Track frame times for FPS calculation
         
         while True:
             ret, frame = cap.read()
@@ -167,33 +234,59 @@ class ColorBlobDetector:
                 print("Failed to grab frame")
                 break
             
-            # Frame rate control
+            # Frame rate control - more precise timing
             current_time = time.time()
             if current_time - last_frame_time < self.frame_time:
                 continue
+                
+            # Calculate actual FPS
+            frame_times.append(current_time)
+            if len(frame_times) > 30:  # Keep last 30 frames for FPS calculation
+                frame_times.pop(0)
+            
+            if len(frame_times) > 1:
+                avg_frame_time = (frame_times[-1] - frame_times[0]) / (len(frame_times) - 1)
+                self.actual_fps = 1.0 / avg_frame_time if avg_frame_time > 0 else 0
+            
             last_frame_time = current_time
+            
+            # Crop center region if enabled
+            if self.enable_crop:
+                cropped_frame, offset_x, offset_y = self.crop_center(frame)
+                processing_frame = cropped_frame
+            else:
+                processing_frame = frame
+                offset_x, offset_y = 0, 0
             
             # Get target color in BGR
             target_bgr = self.hex_to_bgr(self.target_color_hex)
             
-            # Create mask for target color
-            mask = self.create_color_mask(frame, target_bgr, self.color_tolerance)
+            # Create mask for target color (use cropped frame for processing)
+            mask = self.create_color_mask(processing_frame, target_bgr, self.color_tolerance)
             
-            # Detect blobs
-            blobs = self.detect_blobs(frame, mask)
+            # Detect blobs (adjust coordinates back to original frame)
+            blobs = self.detect_blobs(processing_frame, mask, offset_x, offset_y)
             
-            # Draw detections
-            result_frame = self.draw_detections(frame, blobs, target_bgr)
+            # Prepare crop info for drawing
+            if self.enable_crop:
+                crop_info = (offset_x, offset_y, self.crop_width, self.crop_height)
+            else:
+                crop_info = None
+            
+            # Draw detections on original full frame
+            result_frame = self.draw_detections(frame, blobs, target_bgr, crop_info)
             
             # Add info text with larger font for HD resolution
             frame_height, frame_width = frame.shape[:2]
+            crop_status = f"CROP: {self.crop_width}x{self.crop_height}" if self.enable_crop else "CROP: OFF"
             info_text = [
                 f"Target Color: {self.target_color_hex}",
-                f"HSV Tolerance: H:{self.hue_tolerance}, S:{self.saturation_tolerance}, V:r{self.value_tolerance}",
+                f"HSV Tolerance: H:{self.hue_tolerance}, S:{self.saturation_tolerance}, V:{self.value_tolerance}",
                 f"Min Area: {self.min_area}, Max Area: {self.max_area}",
                 f"Blobs Found: {len(blobs)}",
-                f"Frame Rate: {self.frame_rate} FPS",
-                f"Resolution: {frame_width}x{frame_height}"
+                f"Target FPS: {self.frame_rate}, Actual: {self.actual_fps:.1f}",
+                f"Resolution: {frame_width}x{frame_height}",
+                crop_status
             ]
             
             if self.recording:
@@ -212,20 +305,34 @@ class ColorBlobDetector:
             # Show mask in larger window for HD resolution  
             mask_width = 320
             mask_height = 240
-            mask_small = cv2.resize(mask, (mask_width, mask_height))
-            mask_colored = cv2.cvtColor(mask_small, cv2.COLOR_GRAY2BGR)
+            
+            # Use the processing mask (from cropped frame if enabled)
+            display_mask = mask
+            if self.enable_crop:
+                # Resize cropped mask to fit display area
+                display_mask = cv2.resize(mask, (mask_width, mask_height))
+            else:
+                # For full frame, resize normally
+                display_mask = cv2.resize(mask, (mask_width, mask_height))
+                
+            mask_colored = cv2.cvtColor(display_mask, cv2.COLOR_GRAY2BGR)
             
             # Position mask in top-right corner
             mask_x = frame.shape[1] - mask_width - 15
             mask_y = 15
             result_frame[mask_y:mask_y+mask_height, mask_x:mask_x+mask_width] = mask_colored
             
-            cv2.putText(result_frame, "Color Mask", (mask_x, mask_y + mask_height + 25),
+            mask_title = "Crop Mask" if self.enable_crop else "Color Mask"
+            cv2.putText(result_frame, mask_title, (mask_x, mask_y + mask_height + 25),
                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
             
-            # Record frame if recording
+            # Record frame if recording with precise timing
             if self.recording and self.video_writer:
-                self.video_writer.write(result_frame)
+                # Check if enough time has passed for recording the next frame
+                if current_time - last_record_time >= self.frame_time:
+                    self.video_writer.write(result_frame)
+                    self.frame_count += 1  # Count recorded frames
+                    last_record_time = current_time
             
             # Display frame (resize for comfortable viewing if too large)
             display_frame = result_frame.copy()
@@ -312,13 +419,34 @@ class ColorBlobDetector:
                 print("\nPause detection. Adjusting frame rate:")
                 cv2.waitKey(100)  # Small delay
                 try:
-                    new_fps = int(input(f"Current frame rate: {self.frame_rate}. Enter new FPS (1-60): "))
-                    if 1 <= new_fps <= 60:
+                    new_fps = int(input(f"Current frame rate: {self.frame_rate}. Enter new FPS (10-60): "))
+                    if 10 <= new_fps <= 60:  # Limit range for stability
                         self.frame_rate = new_fps
                         self.frame_time = 1.0 / self.frame_rate
                         print(f"Frame rate updated to: {self.frame_rate} FPS")
+                        print("Note: Stop and restart recording to apply new FPS to video file")
                     else:
-                        print("Frame rate must be between 1 and 60")
+                        print("Frame rate must be between 10 and 60")
+                except:
+                    print("Input cancelled or invalid")
+            elif key == ord('p'):
+                self.enable_crop = not self.enable_crop
+                status = "ON" if self.enable_crop else "OFF"
+                print(f"Crop mode: {status}")
+                if self.enable_crop:
+                    print(f"Crop size: {self.crop_width}x{self.crop_height}")
+            elif key == ord('o'):
+                print("\nPause detection. Adjusting crop size:")
+                cv2.waitKey(100)  # Small delay
+                try:
+                    new_width = int(input(f"Current crop width: {self.crop_width}. Enter new width: "))
+                    new_height = int(input(f"Current crop height: {self.crop_height}. Enter new height: "))
+                    if new_width > 0 and new_height > 0 and new_width <= 1920 and new_height <= 1080:
+                        self.crop_width = new_width
+                        self.crop_height = new_height
+                        print(f"Crop size updated to: {self.crop_width}x{self.crop_height}")
+                    else:
+                        print("Invalid crop size. Width and height must be positive and within camera resolution.")
                 except:
                     print("Input cancelled or invalid")
         
