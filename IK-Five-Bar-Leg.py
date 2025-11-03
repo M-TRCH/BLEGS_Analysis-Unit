@@ -102,8 +102,8 @@ if not np.isnan(th1_rad):
 
 # ตั้งค่ากราฟ
 plt.title(f'IK Workspace (L1-Back, L2-Front) @ Home (0,-200)')
-plt.xlabel('Px (mm) - (หน้า/หลัง)')
-plt.ylabel('Py (mm) - (ขึ้น/ลง)')
+plt.xlabel('Px (mm) - (front/back)')
+plt.ylabel('Py (mm) - (up/down)')
 plt.grid(True, linestyle='--', alpha=0.5)
 plt.axhline(0, color='black', linewidth=1.0)
 plt.axvline(0, color='black', linewidth=1.0)
