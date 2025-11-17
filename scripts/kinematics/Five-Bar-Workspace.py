@@ -1,5 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
+from matplotlib.patches import Circle
 
 # --- 1. กำหนดค่าคงที่ของหุ่นยนต์ (ตามที่เราคุยกัน) ---
 L1 = 105.0  # ความยาวลิงก์ขับ (AC และ BD)
@@ -82,10 +83,10 @@ plt.contourf(X, Y, singular_folded, levels=[0.5, 1.5], colors=['#ffcc99'], alpha
 plt.contourf(X, Y, singular_collinear, levels=[0.5, 1.5], colors=['#ff99ff'], alpha=0.6)
 
 # วาดวงกลมแสดงขอบเขตของแขนแต่ละข้าง (เพื่อความเข้าใจ)
-circle_A_outer = plt.Circle(POS_A, R_MAX, color='blue', fill=False, ls=':', label='Left Arm Range')
-circle_A_inner = plt.Circle(POS_A, R_MIN, color='blue', fill=False, ls=':')
-circle_B_outer = plt.Circle(POS_B, R_MAX, color='red', fill=False, ls=':', label='Right Arm Range')
-circle_B_inner = plt.Circle(POS_B, R_MIN, color='red', fill=False, ls=':')
+circle_A_outer = Circle(tuple(POS_A), R_MAX, color='blue', fill=False, ls=':', label='Left Arm Range')
+circle_A_inner = Circle(tuple(POS_A), R_MIN, color='blue', fill=False, ls=':')
+circle_B_outer = Circle(tuple(POS_B), R_MAX, color='red', fill=False, ls=':', label='Right Arm Range')
+circle_B_inner = Circle(tuple(POS_B), R_MIN, color='red', fill=False, ls=':')
 
 ax.add_patch(circle_A_outer)
 ax.add_patch(circle_A_inner)

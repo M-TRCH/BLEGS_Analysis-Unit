@@ -207,13 +207,17 @@ def animate(frame):
     th1, th2, K1_pos, K2_pos = calculate_ik_crossed_reversed(px, py)
     
     if not np.isnan(th1):
+        # แปลง tuple เป็นตัวแปรแยก (ถ้าเป็น tuple)
+        K1_x, K1_y = K1_pos if isinstance(K1_pos, tuple) else (K1_pos, K1_pos)
+        K2_x, K2_y = K2_pos if isinstance(K2_pos, tuple) else (K2_pos, K2_pos)
+        
         # อัพเดตลิงก์และจุดต่าง ๆ
-        link1.set_data([M1_X, K1_pos[0]], [M1_Y, K1_pos[1]])
-        link2.set_data([M2_X, K2_pos[0]], [M2_Y, K2_pos[1]])
-        link3.set_data([K1_pos[0], px], [K1_pos[1], py])
-        link4.set_data([K2_pos[0], px], [K2_pos[1], py])
-        knee1.set_data([K1_pos[0]], [K1_pos[1]])
-        knee2.set_data([K2_pos[0]], [K2_pos[1]])
+        link1.set_data([M1_X, K1_x], [M1_Y, K1_y])
+        link2.set_data([M2_X, K2_x], [M2_Y, K2_y])
+        link3.set_data([K1_x, px], [K1_y, py])
+        link4.set_data([K2_x, px], [K2_y, py])
+        knee1.set_data([K1_x], [K1_y])
+        knee2.set_data([K2_x], [K2_y])
         foot.set_data([px], [py])
         
         # อัพเดตข้อมูลแสดง

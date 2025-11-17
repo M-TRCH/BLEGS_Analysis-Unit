@@ -37,7 +37,7 @@ plt.figure(figsize=(8,6))
 
 for group, subset in df.groupby("Group"):
     plt.scatter(subset["Mass_kg"], subset["T_W_proxy"],
-                s=100, c=colors[group], label=group, alpha=0.8)
+                s=100, c=colors[str(group)], label=str(group), alpha=0.8)
 
     # Label each point
     for _, row in subset.iterrows():
