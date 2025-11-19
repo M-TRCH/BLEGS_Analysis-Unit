@@ -84,14 +84,14 @@ MAX_RPM_OUTPUT = 120  # RPM (หลังเกียร์)
 MAX_OMEGA_OUTPUT = MAX_RPM_OUTPUT * (2 * np.pi / 60)  # 12.57 rad/s
 
 print("=" * 80)
-print("🤖 Dynamic Torque Analysis - 5-Bar Parallel Linkage Robot")
+print("Dynamic Torque Analysis - 5-Bar Parallel Linkage Robot")
 print("=" * 80)
-print(f"\n📋 Configuration:")
+print(f"\nConfiguration:")
 print(f"   - Robot Type: 8-DOF Quadruped Mobile Robot")
 print(f"   - Total Robot Mass: {TOTAL_ROBOT_MASS:.2f} kg")
-print(f"     • Battery + Electronics: {MASS_BATTERY_ELECTRONICS:.2f} kg")
-print(f"     • Frame: {MASS_FRAME:.2f} kg")
-print(f"     • Motors (8×): {MASS_MOTORS_TOTAL:.2f} kg")
+print(f"     * Battery + Electronics: {MASS_BATTERY_ELECTRONICS:.2f} kg")
+print(f"     * Frame: {MASS_FRAME:.2f} kg")
+print(f"     * Motors (8x): {MASS_MOTORS_TOTAL:.2f} kg")
 print(f"   - Mass per Leg (distributed): {MASS_PER_LEG:.3f} kg")
 print(f"   - Link masses: L1={m1*1000:.2f}g, L2={m2*1000:.2f}g, L3={m3*1000:.2f}g, L4={m4*1000:.2f}g")
 print(f"   - Total link mass: {(m1+m2+m3+m4)*1000:.2f} g")
@@ -544,7 +544,7 @@ def calculate_trajectory_derivatives(trajectory, T_cycle):
 # --- 13. คำนวณ Dynamic Torque ---
 
 print("\n" + "=" * 80)
-print("📊 กำลังคำนวณ Dynamic Torque...")
+print("Calculating Dynamic Torque...")
 print("=" * 80)
 
 # สร้าง trajectory
@@ -585,57 +585,57 @@ tau_inertia = np.array(tau_inertia)
 # --- 14. วิเคราะห์ผล ---
 
 print("\n" + "=" * 80)
-print("📈 ผลการวิเคราะห์ Dynamic Torque")
+print("Dynamic Torque Analysis Results")
 print("=" * 80)
 
 # Peak Torque
 peak_tau_A = np.max(np.abs(tau_dynamic[:, 0]))
 peak_tau_B = np.max(np.abs(tau_dynamic[:, 1]))
 
-print(f"\n🔥 Peak Dynamic Torque:")
+print(f"\nPeak Dynamic Torque:")
 print(f"   Motor A (Left):  {peak_tau_A:.4f} N·m")
 print(f"   Motor B (Right): {peak_tau_B:.4f} N·m")
 print(f"   Maximum: {max(peak_tau_A, peak_tau_B):.4f} N·m")
 
-# Static Torque (ที่ท่า Home)
+# Static Torque (Home Position)
 home_idx = 0
 tau_static_A = tau_gravity[home_idx, 0]
 tau_static_B = tau_gravity[home_idx, 1]
 
-print(f"\n📍 Static Torque (Home Position):")
+print(f"\nStatic Torque (Home Position):")
 print(f"   Motor A: {tau_static_A:.4f} N·m")
 print(f"   Motor B: {tau_static_B:.4f} N·m")
 
-# เปรียบเทียบ
-print(f"\n📊 Dynamic vs Static Ratio:")
+# Comparison
+print(f"\nDynamic vs Static Ratio:")
 print(f"   Motor A: {peak_tau_A / abs(tau_static_A):.2f}x")
 print(f"   Motor B: {peak_tau_B / abs(tau_static_B):.2f}x")
 
-# ตรวจสอบมอเตอร์
+# Motor Check
 MOTOR_TORQUE = 5.0  # N·m
 safety_factor_A = MOTOR_TORQUE / peak_tau_A
 safety_factor_B = MOTOR_TORQUE / peak_tau_B
 
-print(f"\n⚙️  Motor Selection (5 N·m):")
+print(f"\nMotor Selection (5 N·m):")
 print(f"   Safety Factor A: {safety_factor_A:.2f}x")
 print(f"   Safety Factor B: {safety_factor_B:.2f}x")
 
 if min(safety_factor_A, safety_factor_B) >= 2.0:
-    print(f"   ✅ PASS - มอเตอร์เพียงพอ (Safety Factor ≥ 2x)")
+    print(f"   PASS - Motor is adequate (Safety Factor >= 2x)")
 elif min(safety_factor_A, safety_factor_B) >= 1.5:
-    print(f"   ⚠️  WARNING - Safety Factor ต่ำ (1.5x - 2x)")
+    print(f"   WARNING - Low safety factor (1.5x - 2x)")
 else:
-    print(f"   ❌ FAIL - มอเตอร์ไม่เพียงพอ (Safety Factor < 1.5x)")
+    print(f"   FAIL - Motor is inadequate (Safety Factor < 1.5x)")
 
 
 # --- 15. Visualization ---
 
 print("\n" + "=" * 80)
-print("📊 กำลังสร้างกราฟ...")
+print("Generating plots...")
 print("=" * 80)
 
 fig = plt.figure(figsize=(16, 12))
-gs = GridSpec(3, 2, figure=fig, hspace=0.3, wspace=0.3)
+gs = GridSpec(3, 2, figure=fig, hspace=0.6, wspace=0.3)
 
 time = np.linspace(0, CYCLE_TIME, NUM_STEPS)
 
@@ -695,7 +695,7 @@ ax5.set_title('Total Dynamic Torque - Both Motors', fontsize=12, weight='bold')
 ax5.grid(True, alpha=0.3)
 ax5.legend()
 
-plt.suptitle('🤖 Dynamic Torque Analysis - 5-Bar Parallel Linkage Robot\n' + 
+plt.suptitle('Dynamic Torque Analysis - 5-Bar Parallel Linkage Robot\n' + 
              f'Elliptical Gait ({STEP_FREQUENCY} Hz) | Total Mass: {TOTAL_ROBOT_MASS:.2f} kg | Per Leg: {MASS_PER_LEG:.3f} kg', 
              fontsize=14, weight='bold', y=0.995)
 
@@ -703,5 +703,5 @@ plt.tight_layout()
 plt.show()
 
 print("\n" + "=" * 80)
-print("✅ การวิเคราะห์เสร็จสมบูรณ์!")
+print("Analysis completed successfully!")
 print("=" * 80)
