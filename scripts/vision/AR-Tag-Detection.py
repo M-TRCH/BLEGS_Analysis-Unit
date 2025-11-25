@@ -12,44 +12,39 @@ detector = cv2.aruco.ArucoDetector(aruco_dict, aruco_params)
 # --- 2. ตั้งค่าขนาด Marker (สำคัญมาก!) ---
 # วัดขนาดจริงของ Marker ที่คุณ "พิมพ์" ออกมา (วัดเฉพาะส่วนสีดำ)
 # หน่วยเป็น "เมตร"
-MARKER_SIZE_METERS = 0.05  # ตัวอย่าง: 5 เซนติเมตร (คุณต้องเปลี่ยนค่านี้)
+MARKER_SIZE_METERS = 0.039  # 39 มิลลิเมตร = 0.039 เมตร
 
-# --- 3. Dummy Camera Calibration (สำหรับการทดสอบ) ---
-# 
-# !! คำเตือน !!
-# ค่านี้เป็นค่า "ปลอม" สำหรับทดสอบเท่านั้น
-# หากต้องการความแม่นยำ 3D จริง คุณต้องทำการ Calibrate กล้องของคุณก่อน
-# 
-# กล้องมีความละเอียด 3840x2160 (4K)
-focal_length = 2000  # ประมาณการจาก resolution (ปกติ focal ~ resolution)
-center_x = 3840 / 2
-center_y = 2160 / 2
+# --- 3. โหลด Camera Calibration Parameters ---
+# ใช้ path แบบ absolute หรือ relative จากตำแหน่งสคริปต์
+import os
+script_dir = os.path.dirname(os.path.abspath(__file__))
+calib_file = os.path.join(script_dir, "camera_calibration", "camera_params_1080p60.npz")
 
-# Camera Matrix (K)
-camera_matrix = np.array([
-    [focal_length, 0, center_x],
-    [0, focal_length, center_y],
-    [0, 0, 1]
-], dtype=np.float32)
-
-# Distortion Coefficients (D) - สมมติว่าไม่มีการบิดเบือน
-dist_coeffs = np.zeros((5, 1), dtype=np.float32)
-
-print("ใช้ Camera Matrix (Dummy):")
-print(camera_matrix)
-print("\nใช้ Distortion Coeffs (Dummy):")
-print(dist_coeffs)
+try:
+    calib_data = np.load(calib_file)
+    camera_matrix = calib_data['mtx']
+    dist_coeffs = calib_data['dist']
+    print(f"โหลด Camera Parameters จาก: {calib_file}")
+    print("\nCamera Matrix (K):")
+    print(camera_matrix)
+    print("\nDistortion Coefficients (D):")
+    print(dist_coeffs)
+except FileNotFoundError:
+    print(f"ไม่พบไฟล์ {calib_file}")
+    print("กรุณาทำ camera calibration ก่อนใช้งาน")
+    exit()
 #----------------------------------------------------
 
 # --- 4. เปิดกล้อง ---
-cap = cv2.VideoCapture(2) # 0 คือกล้องตัวแรก
+cap = cv2.VideoCapture(1)   # ใช้กล้องตัวที่สอง (1)
 if not cap.isOpened():
     print("ไม่สามารถเปิดกล้องได้")
     exit()
 
-# ตั้งค่าความละเอียดกล้องเป็น 3840x2160 (4K)
-cap.set(cv2.CAP_PROP_FRAME_WIDTH, 3840)
-cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 2160)
+# ตั้งค่าความละเอียดกล้องเป็น 1920x1080 @ 60fps (ตรงกับ calibration)
+cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1920)
+cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 1080)
+cap.set(cv2.CAP_PROP_FPS, 60)
 
 # อ่านความละเอียดจริงที่ได้
 actual_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
