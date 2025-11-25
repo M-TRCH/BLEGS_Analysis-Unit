@@ -82,7 +82,7 @@ if ret:
     print(f"\nRe-projection Error: {mean_error/len(objpoints):.5f} (ยิ่งน้อยยิ่งดี ควร < 1.0)")
 
     # บันทึกไฟล์
-    np.savez("camera_params_4k_apsc.npz", mtx=mtx, dist=dist)
-    print("\nบันทึกไฟล์: camera_params_4k_apsc.npz เรียบร้อยแล้ว")
+    np.savez("camera_params_1080p60.npz", mtx=mtx, dist=dist)
+    print("\nบันทึกไฟล์: camera_params_1080p60.npz เรียบร้อยแล้ว")
 else:
     print("\n❌ Calibration ล้มเหลว")

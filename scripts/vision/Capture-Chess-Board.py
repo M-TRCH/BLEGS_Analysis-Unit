@@ -13,8 +13,8 @@ CAMERA_INDEX = 1
 IMAGE_DIR = "calib_images"
 
 # ความละเอียดกล้อง (ตั้งให้ตรงกับที่ใช้จริง)
-FRAME_W = 3840
-FRAME_H = 2160
+FRAME_W = 1920
+FRAME_H = 1080
 # -------------
 
 # สร้างโฟลเดอร์เก็บภาพ
@@ -25,11 +25,14 @@ if not os.path.exists(IMAGE_DIR):
 cap = cv2.VideoCapture(CAMERA_INDEX)
 cap.set(cv2.CAP_PROP_FRAME_WIDTH, FRAME_W)
 cap.set(cv2.CAP_PROP_FRAME_HEIGHT, FRAME_H)
+cap.set(cv2.CAP_PROP_FPS, 60)  # ตั้งเฟรมเรท 60 FPS
 
-# เช็คความละเอียดจริง
+# เช็คความละเอียดและเฟรมเรทจริง
 act_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
 act_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+act_fps = cap.get(cv2.CAP_PROP_FPS)
 print(f"กล้องเปิดที่ความละเอียด: {act_w}x{act_h}")
+print(f"เฟรมเรทจริง: {act_fps} FPS")
 print("------------------------------------------")
 print("กด [SPACE] เพื่อบันทึกภาพ")
 print("กด [q] เพื่อจบการทำงาน")
@@ -57,9 +60,8 @@ while True:
         cv2.putText(preview_frame, "READY TO CAPTURE", (50, 100), 
                     cv2.FONT_HERSHEY_SIMPLEX, 2, (0, 255, 0), 3)
 
-    # ย่อภาพแสดงผล (เพราะจอคอมรับ 4K ไม่ไหว)
-    display_img = cv2.resize(preview_frame, (1280, 720))
-    cv2.imshow("Camera Calibration Capture", display_img)
+    # แสดงผลภาพ (1080p ไม่ต้องย่อ หรือจะย่อก็ได้ตามต้องการ)
+    cv2.imshow("Camera Calibration Capture", preview_frame)
 
     key = cv2.waitKey(1)
 
