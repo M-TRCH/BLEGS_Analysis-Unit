@@ -20,8 +20,8 @@ from matplotlib.patches import Circle
 import matplotlib.patches as mpatches
 
 # --- 1. Motor Communication Parameters ---
-MOTOR1_PORT = 'COM44'  # Left motor (Motor A)
-MOTOR2_PORT = 'COM9'   # Right motor (Motor B)
+MOTOR1_PORT = 'COM7'  # Left motor (Motor A)
+MOTOR2_PORT = 'COM10'   # Right motor (Motor B)
 BAUD_RATE = 921600
 SERIAL_TIMEOUT = 0.1
 
@@ -146,8 +146,14 @@ class MotorController:
             motor_angle = angle_deg * GEAR_RATIO
             
             with self.lock:
+                # Flush input buffer before sending new command to prevent buffer overflow
+                self.serial.reset_input_buffer()
+                
                 command = f"#{motor_angle:.2f}\n"
                 self.serial.write(command.encode())
+                
+                # Small delay to allow command to be sent
+                time.sleep(0.001)
             
             return True
         except Exception as e:
@@ -162,29 +168,46 @@ class MotorController:
             return None
         
         try:
-            if self.serial.in_waiting > 0:
-                line = self.serial.readline().decode().strip()
-                
-                # Parse feedback: "Returns:    <setpoint>    <current_position>"
-                if line.startswith("Returns:"):
-                    parts = line.split()
-                    if len(parts) >= 3:
-                        setpoint = float(parts[1])
-                        position = float(parts[2])
-                        
-                        with self.lock:
-                            # Convert motor shaft angle back to robot angle
-                            # Robot angle = Motor angle / Gear ratio
-                            self.current_setpoint = setpoint / GEAR_RATIO
-                            self.current_position = position / GEAR_RATIO
-                        
-                        return (self.current_setpoint, self.current_position)
+            # Read multiple lines if available to clear buffer
+            max_attempts = 5
+            latest_feedback = None
             
-            return None
+            for _ in range(max_attempts):
+                if self.serial.in_waiting > 0:
+                    try:
+                        line = self.serial.readline().decode('utf-8', errors='ignore').strip()
+                        
+                        # Parse feedback: "Returns:    <setpoint>    <current_position>"
+                        if line.startswith("Returns:"):
+                            parts = line.split()
+                            if len(parts) >= 3:
+                                try:
+                                    setpoint = float(parts[1])
+                                    position = float(parts[2])
+                                    
+                                    with self.lock:
+                                        # Convert motor shaft angle back to robot angle
+                                        # Robot angle = Motor angle / Gear ratio
+                                        self.current_setpoint = setpoint / GEAR_RATIO
+                                        self.current_position = position / GEAR_RATIO
+                                    
+                                    latest_feedback = (self.current_setpoint, self.current_position)
+                                except ValueError:
+                                    # Skip corrupted data
+                                    continue
+                    except UnicodeDecodeError:
+                        # Skip corrupted data
+                        continue
+                else:
+                    break
+            
+            return latest_feedback
         except Exception as e:
-            print(f"❌ {self.name} read_feedback error: {e}")
-            print(f"⚠️  {self.name} may have disconnected!")
-            self.is_connected = False
+            # Only print error if it's not a parsing issue
+            if "could not convert" not in str(e):
+                print(f"❌ {self.name} read_feedback error: {e}")
+                print(f"⚠️  {self.name} may have disconnected!")
+                self.is_connected = False
             return None
     
     def get_current_position(self):
