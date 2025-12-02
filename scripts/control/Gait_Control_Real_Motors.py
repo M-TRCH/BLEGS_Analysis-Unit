@@ -55,7 +55,8 @@ ENABLE_VISUALIZATION = True  # Enable real-time visualization
 PLOT_UPDATE_RATE = 10  # Hz (100ms per plot update)
 
 # Global variables for visualization
-current_angles = [0.0, 0.0]  # [theta_A, theta_B] in radians
+current_angles = [0.0, 0.0]  # [theta_A, theta_B] in radians (setpoint)
+actual_angles = [0.0, 0.0]   # [theta_A, theta_B] in radians (actual from feedback)
 current_target = [0.0, -200.0]  # [x, y] target position
 viz_lock = threading.Lock()
 plot_running = True
@@ -125,6 +126,24 @@ class MotorController:
             return True
         except Exception as e:
             print(f"❌ {self.name} set_mode error: {e}")
+            return False
+    
+    def switch_mode(self, mode):
+        """Switch control mode (0=Direct, 1=S-Curve) without printing response"""
+        if not self.is_connected:
+            return False
+        
+        try:
+            command = f"M{mode}\n"
+            self.serial.write(command.encode())
+            time.sleep(0.05)
+            
+            # Clear response buffer
+            if self.serial.in_waiting > 0:
+                self.serial.readline()
+            
+            return True
+        except Exception as e:
             return False
     
     def set_position(self, angle_deg):
@@ -336,19 +355,32 @@ def visualization_thread():
     ax.plot(P_A[0], P_A[1], 'ro', markersize=12, label='Motor A (Left)', zorder=5)
     ax.plot(P_B[0], P_B[1], 'bo', markersize=12, label='Motor B (Right)', zorder=5)
     
-    # Initialize link lines
-    link1, = ax.plot([], [], 'r-', linewidth=5, label='L₁ (AC)', zorder=4)
-    link2, = ax.plot([], [], 'b-', linewidth=5, label='L₂ (BD)', zorder=4)
+    # Initialize link lines for SETPOINT (solid, bright colors)
+    link1, = ax.plot([], [], 'r-', linewidth=5, label='L₁ (AC) - Target', zorder=4)
+    link2, = ax.plot([], [], 'b-', linewidth=5, label='L₂ (BD) - Target', zorder=4)
     link3, = ax.plot([], [], 'orange', linestyle='--', linewidth=4, label='L₃ (CE)', zorder=3)
     link4, = ax.plot([], [], 'cyan', linestyle='--', linewidth=4, label='L₄ (DE)', zorder=3)
     link5, = ax.plot([], [], 'g-', linewidth=3.5, label='L₅ (EF)', zorder=4)
     
-    # Initialize joint markers
+    # Initialize link lines for ACTUAL (dashed, faded colors)
+    link1_actual, = ax.plot([], [], 'r--', linewidth=3, alpha=0.5, label='L₁ (AC) - Actual', zorder=3)
+    link2_actual, = ax.plot([], [], 'b--', linewidth=3, alpha=0.5, label='L₂ (BD) - Actual', zorder=3)
+    link3_actual, = ax.plot([], [], 'orange', linestyle=':', linewidth=2, alpha=0.4, zorder=2)
+    link4_actual, = ax.plot([], [], 'cyan', linestyle=':', linewidth=2, alpha=0.4, zorder=2)
+    link5_actual, = ax.plot([], [], 'g--', linewidth=2, alpha=0.5, zorder=3)
+    
+    # Initialize joint markers for SETPOINT
     joint_c, = ax.plot([], [], 'ro', markersize=10, markeredgecolor='black', markeredgewidth=2, zorder=5)
     joint_d, = ax.plot([], [], 'bo', markersize=10, markeredgecolor='black', markeredgewidth=2, zorder=5)
     joint_e, = ax.plot([], [], 's', color='purple', markersize=8, markeredgecolor='black', markeredgewidth=2, zorder=5)
     foot, = ax.plot([], [], '*', color='green', markersize=20, markeredgecolor='black', markeredgewidth=1.5, zorder=6)
     target, = ax.plot([], [], 'x', color='red', markersize=15, markeredgewidth=3, label='Target', zorder=6)
+    
+    # Initialize joint markers for ACTUAL (smaller, faded)
+    joint_c_actual, = ax.plot([], [], 'ro', markersize=6, alpha=0.5, zorder=4)
+    joint_d_actual, = ax.plot([], [], 'bo', markersize=6, alpha=0.5, zorder=4)
+    joint_e_actual, = ax.plot([], [], 's', color='purple', markersize=5, alpha=0.5, zorder=4)
+    foot_actual, = ax.plot([], [], '*', color='green', markersize=12, alpha=0.5, zorder=5)
     
     # Text display
     info_text = ax.text(0.02, 0.98, '', transform=ax.transAxes,
@@ -359,50 +391,75 @@ def visualization_thread():
     
     def update_plot(frame):
         """Update plot with current mechanism state"""
-        global plot_running, current_angles, current_target
+        global plot_running, current_angles, actual_angles, current_target
         
         if not plot_running:
-            return link1, link2, link3, link4, link5, joint_c, joint_d, joint_e, foot, target, info_text
+            return (link1, link2, link3, link4, link5, 
+                    link1_actual, link2_actual, link3_actual, link4_actual, link5_actual,
+                    joint_c, joint_d, joint_e, foot, target,
+                    joint_c_actual, joint_d_actual, joint_e_actual, foot_actual, info_text)
         
         with viz_lock:
-            theta_A, theta_B = current_angles
+            theta_A, theta_B = current_angles  # Setpoint angles
+            theta_A_actual, theta_B_actual = actual_angles  # Actual angles
             target_x, target_y = current_target
         
-        # Calculate positions
+        # Calculate SETPOINT positions
         P_C, P_D, P_E, P_F = calculate_fk_positions(theta_A, theta_B)
         
+        # Calculate ACTUAL positions
+        P_C_actual, P_D_actual, P_E_actual, P_F_actual = calculate_fk_positions(theta_A_actual, theta_B_actual)
+        
         if P_C is not None and P_D is not None and P_E is not None and P_F is not None:
-            # Update links
+            # Update SETPOINT links
             link1.set_data([P_A[0], P_C[0]], [P_A[1], P_C[1]])
             link2.set_data([P_B[0], P_D[0]], [P_B[1], P_D[1]])
             link3.set_data([P_C[0], P_E[0]], [P_C[1], P_E[1]])
             link4.set_data([P_D[0], P_E[0]], [P_D[1], P_E[1]])
             link5.set_data([P_E[0], P_F[0]], [P_E[1], P_F[1]])
             
-            # Update joints
+            # Update SETPOINT joints
             joint_c.set_data([P_C[0]], [P_C[1]])
             joint_d.set_data([P_D[0]], [P_D[1]])
             joint_e.set_data([P_E[0]], [P_E[1]])
             foot.set_data([P_F[0]], [P_F[1]])
             target.set_data([target_x], [target_y])
+        
+        if P_C_actual is not None and P_D_actual is not None and P_E_actual is not None and P_F_actual is not None:
+            # Update ACTUAL links
+            link1_actual.set_data([P_A[0], P_C_actual[0]], [P_A[1], P_C_actual[1]])
+            link2_actual.set_data([P_B[0], P_D_actual[0]], [P_B[1], P_D_actual[1]])
+            link3_actual.set_data([P_C_actual[0], P_E_actual[0]], [P_C_actual[1], P_E_actual[1]])
+            link4_actual.set_data([P_D_actual[0], P_E_actual[0]], [P_D_actual[1], P_E_actual[1]])
+            link5_actual.set_data([P_E_actual[0], P_F_actual[0]], [P_E_actual[1], P_F_actual[1]])
+            
+            # Update ACTUAL joints
+            joint_c_actual.set_data([P_C_actual[0]], [P_C_actual[1]])
+            joint_d_actual.set_data([P_D_actual[0]], [P_D_actual[1]])
+            joint_e_actual.set_data([P_E_actual[0]], [P_E_actual[1]])
+            foot_actual.set_data([P_F_actual[0]], [P_F_actual[1]])
             
             # Update info text
             info_text.set_text(
                 f'═══ Real-Time Status ═══\n'
-                f'θA (Left):  {np.rad2deg(theta_A):+7.1f}°\n'
-                f'θB (Right): {np.rad2deg(theta_B):+7.1f}°\n\n'
+                f'θA Target:  {np.rad2deg(theta_A):+7.1f}°\n'
+                f'θA Actual:  {np.rad2deg(theta_A_actual):+7.1f}°\n'
+                f'θB Target:  {np.rad2deg(theta_B):+7.1f}°\n'
+                f'θB Actual:  {np.rad2deg(theta_B_actual):+7.1f}°\n\n'
                 f'═══ Foot Position ═══\n'
-                f'X: {P_F[0]:+7.1f} mm\n'
-                f'Y: {P_F[1]:+7.1f} mm\n\n'
-                f'═══ Target Position ═══\n'
-                f'X: {target_x:+7.1f} mm\n'
-                f'Y: {target_y:+7.1f} mm\n\n'
-                f'═══ Error ═══\n'
-                f'ΔX: {P_F[0]-target_x:+7.1f} mm\n'
-                f'ΔY: {P_F[1]-target_y:+7.1f} mm'
+                f'Target: ({P_F[0]:+6.1f}, {P_F[1]:+6.1f})\n'
+                f'Actual: ({P_F_actual[0]:+6.1f}, {P_F_actual[1]:+6.1f})\n\n'
+                f'═══ Position Error ═══\n'
+                f'ΔθA: {np.rad2deg(theta_A - theta_A_actual):+6.1f}°\n'
+                f'ΔθB: {np.rad2deg(theta_B - theta_B_actual):+6.1f}°\n'
+                f'ΔX:  {P_F[0] - P_F_actual[0]:+6.1f} mm\n'
+                f'ΔY:  {P_F[1] - P_F_actual[1]:+6.1f} mm'
             )
         
-        return link1, link2, link3, link4, link5, joint_c, joint_d, joint_e, foot, target, info_text
+        return (link1, link2, link3, link4, link5,
+                link1_actual, link2_actual, link3_actual, link4_actual, link5_actual,
+                joint_c, joint_d, joint_e, foot, target,
+                joint_c_actual, joint_d_actual, joint_e_actual, foot_actual, info_text)
     
     # Create animation
     anim = FuncAnimation(fig, update_plot, interval=int(1000/PLOT_UPDATE_RATE), blit=True, cache_frame_data=False)
@@ -422,7 +479,7 @@ def start_visualization():
 
 # --- 6. Main Control Loop ---
 def main():
-    global plot_running, current_angles, current_target
+    global plot_running, current_angles, actual_angles, current_target
     
     print("="*70)
     print("  BLEGS Gait Control - Real Motor Control System")
@@ -478,6 +535,11 @@ def main():
         
         # Move to home position first
         print(f"\n🏠 Moving to home position (0, -200)...")
+        print("  Switching to S-Curve mode for smooth movement...")
+        motor_A.switch_mode(1)  # S-Curve mode
+        motor_B.switch_mode(1)
+        time.sleep(0.2)
+        
         home_pos = np.array([0.0, -200.0])
         home_angles = calculate_ik_analytical(home_pos, elbow_C_down=True, elbow_D_down=True)
         
@@ -489,6 +551,12 @@ def main():
         else:
             print("❌ Failed to calculate home position IK")
             return
+        
+        # Switch to control mode for gait
+        print(f"\n⚙️  Switching to {'S-Curve' if CONTROL_MODE == 1 else 'Direct'} mode for gait control...")
+        motor_A.switch_mode(CONTROL_MODE)
+        motor_B.switch_mode(CONTROL_MODE)
+        time.sleep(0.2)
         
         # Start gait cycle
         print(f"\n▶️  Starting gait control...")
@@ -556,6 +624,11 @@ def main():
                     feedback_A = motor_A.read_feedback()
                     feedback_B = motor_B.read_feedback()
                     
+                    # Update actual angles for visualization
+                    if feedback_A and feedback_B:
+                        with viz_lock:
+                            actual_angles = [np.deg2rad(feedback_A[1]), np.deg2rad(feedback_B[1])]
+                    
                     # Display status
                     print(f"  [{frame+1:2d}/{len(trajectory)}] "
                           f"Pos:({px:+6.1f}, {py:+6.1f}) "
@@ -586,7 +659,12 @@ def main():
         
         # Return to home position
         print("\n🏠 Returning to home position...")
+        print("  Switching to S-Curve mode for smooth return...")
         try:
+            motor_A.switch_mode(1)  # S-Curve mode
+            motor_B.switch_mode(1)
+            time.sleep(0.2)
+            
             motor_A.set_position(np.rad2deg(home_angles[0]))
             motor_B.set_position(np.rad2deg(home_angles[1]))
             time.sleep(2.0)
