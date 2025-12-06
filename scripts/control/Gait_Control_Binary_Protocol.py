@@ -84,6 +84,41 @@ current_target = [0.0, -200.0]
 viz_lock = threading.Lock()
 plot_running = True
 
+# Global variables for error tracking
+error_history_A = []
+error_history_B = []
+max_error_A = 0.0
+max_error_B = 0.0
+error_lock = threading.Lock()
+
+# Global variables for control
+gait_running = False
+gait_paused = False
+control_lock = threading.Lock()
+
+def reset_error_stats():
+    """Reset all error statistics"""
+    global error_history_A, error_history_B, max_error_A, max_error_B
+    with error_lock:
+        error_history_A.clear()
+        error_history_B.clear()
+        max_error_A = 0.0
+        max_error_B = 0.0
+    print("\n🔄 Error statistics reset!")
+
+def toggle_gait_control():
+    """Toggle gait control on/off"""
+    global gait_running, gait_paused
+    with control_lock:
+        if not gait_running:
+            gait_running = True
+            gait_paused = False
+            print("\n▶️  Gait control STARTED!")
+        else:
+            gait_running = False
+            gait_paused = True
+            print("\n⏸️  Gait control PAUSED!")
+
 # --- 4. Protocol Functions ---
 def calculate_crc16(data: bytes) -> int:
     """Calculate CRC-16-IBM for data buffer"""
@@ -471,6 +506,12 @@ def visualization_thread():
                         fontsize=9, verticalalignment='top', family='monospace',
                         bbox=dict(boxstyle='round', facecolor='lightyellow', alpha=0.9))
     
+    # Add instruction text for keyboard controls
+    control_text = ax.text(0.02, 0.02, 'Controls: [SPACE] Start/Stop  |  [R] Reset Error Stats', 
+                        transform=ax.transAxes,
+                        fontsize=8, verticalalignment='bottom', family='monospace',
+                        bbox=dict(boxstyle='round', facecolor='lightblue', alpha=0.8))
+    
     ax.legend(loc='lower right', fontsize=8, framealpha=0.9)
     
     def update_plot(frame):
@@ -515,6 +556,13 @@ def visualization_thread():
             joint_e_actual.set_data([P_E_actual[0]], [P_E_actual[1]])
             foot_actual.set_data([P_F_actual[0]], [P_F_actual[1]])
             
+            # Calculate error statistics
+            with error_lock:
+                avg_err_A = np.mean(error_history_A) if len(error_history_A) > 0 else 0.0
+                avg_err_B = np.mean(error_history_B) if len(error_history_B) > 0 else 0.0
+                max_err_A = max_error_A
+                max_err_B = max_error_B
+            
             info_text.set_text(
                 f'═══ Binary Protocol Mode ═══\n'
                 f'θA Target:  {np.rad2deg(theta_A):+7.1f}°\n'
@@ -524,11 +572,16 @@ def visualization_thread():
                 f'═══ Foot Position ═══\n'
                 f'Target: ({P_F[0]:+6.1f}, {P_F[1]:+6.1f})\n'
                 f'Actual: ({P_F_actual[0]:+6.1f}, {P_F_actual[1]:+6.1f})\n\n'
-                f'═══ Error ═══\n'
+                f'═══ Current Error ═══\n'
                 f'ΔθA: {np.rad2deg(theta_A - theta_A_actual):+6.1f}°\n'
                 f'ΔθB: {np.rad2deg(theta_B - theta_B_actual):+6.1f}°\n'
                 f'ΔX:  {P_F[0] - P_F_actual[0]:+6.1f} mm\n'
-                f'ΔY:  {P_F[1] - P_F_actual[1]:+6.1f} mm'
+                f'ΔY:  {P_F[1] - P_F_actual[1]:+6.1f} mm\n\n'
+                f'═══ Error Statistics ═══\n'
+                f'Max θA:  {max_err_A:6.2f}°\n'
+                f'Avg θA:  {avg_err_A:6.2f}°\n'
+                f'Max θB:  {max_err_B:6.2f}°\n'
+                f'Avg θB:  {avg_err_B:6.2f}°'
             )
         
         return (link1, link2, link3, link4, link5,
@@ -537,6 +590,15 @@ def visualization_thread():
                 joint_c_actual, joint_d_actual, joint_e_actual, foot_actual, info_text)
     
     anim = FuncAnimation(fig, update_plot, interval=int(1000/PLOT_UPDATE_RATE), blit=True, cache_frame_data=False)
+    
+    # Add keyboard event handler
+    def on_key_press(event):
+        if event.key == 'r' or event.key == 'R':
+            reset_error_stats()
+        elif event.key == ' ':  # Space bar
+            toggle_gait_control()
+    
+    fig.canvas.mpl_connect('key_press_event', on_key_press)
     
     plt.tight_layout()
     plt.show()
@@ -553,6 +615,8 @@ def start_visualization():
 # --- 8. Main Control Loop ---
 def main():
     global plot_running, current_angles, actual_angles, current_target
+    global error_history_A, error_history_B, max_error_A, max_error_B
+    global gait_running, gait_paused
     
     print("="*70)
     print("  BLEGS Gait Control - Binary Protocol High-Speed System")
@@ -618,18 +682,32 @@ def main():
             return
         
         # Start gait cycle
-        print(f"\n▶️  Starting high-speed gait control...")
+        print(f"\n⏸️  Gait control ready (PAUSED)")
+        print("  Press [SPACE] in visualization window to start")
         print("  Press Ctrl+C to stop")
         print("="*70)
         
         prev_solution = home_angles
         cycle_count = 0
+        gait_paused = True  # Start in paused state
         
         while True:
+            # Check if gait control is paused
+            with control_lock:
+                is_paused = gait_paused
+            
+            if is_paused:
+                time.sleep(0.05)  # Small sleep when paused
+                continue
+            
             cycle_count += 1
             print(f"\n🔄 Gait Cycle #{cycle_count}")
             
             for frame, (px, py) in enumerate(trajectory):
+                # Check pause state before each step
+                with control_lock:
+                    if gait_paused:
+                        break
                 # Find best IK solution
                 configs = [
                     (True, True),
@@ -683,6 +761,16 @@ def main():
                         with viz_lock:
                             actual_angles = [np.deg2rad(feedback_A['position']), 
                                            np.deg2rad(feedback_B['position'])]
+                        
+                        # Calculate and track errors (output shaft angles)
+                        error_A = abs(np.rad2deg(theta_A - np.deg2rad(feedback_A['position'])))
+                        error_B = abs(np.rad2deg(theta_B - np.deg2rad(feedback_B['position'])))
+                        
+                        with error_lock:
+                            error_history_A.append(error_A)
+                            error_history_B.append(error_B)
+                            max_error_A = max(max_error_A, error_A)
+                            max_error_B = max(max_error_B, error_B)
                     
                     # Check connection
                     if not motor_A.is_connected or not motor_B.is_connected:
@@ -738,6 +826,17 @@ def main():
               f"Errors={stats_A['errors']}, Success={stats_A['success_rate']:.1f}%")
         print(f"  Motor B: TX={stats_B['tx']}, RX={stats_B['rx']}, "
               f"Errors={stats_B['errors']}, Success={stats_B['success_rate']:.1f}%")
+        
+        # Print error statistics
+        print("\n📈 Output Shaft Error Statistics:")
+        with error_lock:
+            if len(error_history_A) > 0:
+                avg_err_A = np.mean(error_history_A)
+                avg_err_B = np.mean(error_history_B)
+                print(f"  Motor A: Max={max_error_A:.2f}°, Avg={avg_err_A:.2f}°, Samples={len(error_history_A)}")
+                print(f"  Motor B: Max={max_error_B:.2f}°, Avg={avg_err_B:.2f}°, Samples={len(error_history_B)}")
+            else:
+                print("  No error data collected")
         
         # Disconnect motors
         print("\n🔌 Disconnecting motors...")
