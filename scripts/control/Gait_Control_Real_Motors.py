@@ -20,8 +20,8 @@ from matplotlib.patches import Circle
 import matplotlib.patches as mpatches
 
 # --- 1. Motor Communication Parameters ---
-MOTOR1_PORT = 'COM7'  # Left motor (Motor A)
-MOTOR2_PORT = 'COM10'   # Right motor (Motor B)
+MOTOR1_PORT = 'COM9'  # Left motor (Motor A)
+MOTOR2_PORT = 'COM44'   # Right motor (Motor B)
 BAUD_RATE = 921600
 SERIAL_TIMEOUT = 0.1
 

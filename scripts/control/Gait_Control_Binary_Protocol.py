@@ -70,8 +70,8 @@ OFFSET_RATIO_D = 8.0 / 29.0
 
 # --- 3. Motion Control Parameters ---
 CONTROL_MODE = ControlMode.MODE_DIRECT_POSITION  # Direct mode for fastest response
-UPDATE_RATE = 200  # Hz (5ms per update) - increased for better tracking
-TRAJECTORY_STEPS = 300  # Number of steps in one gait cycle (300 steps × 5ms = 1500ms/cycle)
+UPDATE_RATE = 100  # Hz (10ms per update)
+TRAJECTORY_STEPS = 60  # Number of steps in one gait cycle (60 steps × 10ms = 600ms/cycle - FASTER!)
 
 # --- 3.5 Visualization Parameters ---
 ENABLE_VISUALIZATION = True
@@ -690,7 +690,7 @@ def main():
                         raise RuntimeError("Motor disconnection")
                     
                     # Display status (compact)
-                    if (frame + 1) % 20 == 0:  # Print every 20 steps (adjusted for 200Hz)
+                    if (frame + 1) % 10 == 0:  # Print every 10 steps
                         print(f"  [{frame+1:3d}/{len(trajectory)}] "
                               f"Cmd: {cmd_time:.2f}ms "
                               f"θA:{np.rad2deg(theta_A):+6.1f}° "
