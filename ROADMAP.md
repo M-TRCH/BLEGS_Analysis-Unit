@@ -3,7 +3,7 @@
 **โปรเจ็กต์:** การวิเคราะห์จลนศาสตร์ (Kinematics) และพลศาสตร์ (Dynamics) ของกลไกขาหุ่นยนต์ 5-Bar Linkage แบบมี Offset เพื่อใช้ในการจำลอง (Simulation) และการควบคุม (Control) ต่อไป
 
 **เจ้าของโปรเจ็กต์:** นายธีรโชติ เมืองจำนงค์  
-**อัพเดทล่าสุด:** 4 ธันวาคม 2025
+**อัพเดทล่าสุด:** 7 ธันวาคม 2025
 
 ---
 
@@ -136,25 +136,43 @@ $$\tau = M(q)\ddot{q} + G(q)$$
 
 ---
 
-### **Phase 4: Control & Implementation (การควบคุมและติดตั้ง)** 🔄 **IN PROGRESS**
+### **Phase 4: Control & Implementation (การควบคุมและติดตั้ง)** ✅ **DONE (Single Leg)**
 
 | งาน | สถานะ | เครื่องมือ | หมายเหตุ |
 |-----|-------|----------|----------|
-| **4.1 Controller Design** | ⚠️ NEEDS FIX | Python/C++ | PID หรือ Model-based Control |
+| **4.1 Controller Design** | ✅ DONE | Python | Direct Position Control + S-Curve Profiling |
 | **4.2 Hardware Selection** | ✅ DONE | - | เลือก**BLDC มอเตอร์ 5 Nm** แล้ว (ยืนยันจาก Phase 2) |
-| **4.3 Hardware Integration** | 🔄 IN PROGRESS | Python + Binary Protocol | ต่อมอเตอร์และทดสอบ Binary Protocol v1.1 |
+| **4.3 Hardware Integration** | ✅ DONE | Python + Binary Protocol | Binary Protocol v1.1 @ 921600 baud + CRC-16 |
 | **4.3.1 Binary Protocol Implementation** | ✅ DONE | Python | Binary Protocol v1.1 @ 921600 baud |
-| **4.3.2 Gait Control Testing** | ✅ DONE | Python | ทดสอบ 341 cycles, success rate 96-99% |
-| **4.3.3 Motor Jitter Issue** | ⚠️ OPEN | MCU Firmware | มอเตอร์กระตุกเป็นช่วงๆ - ต้องแก้ฝั่ง MCU |
-| **4.4 Testing & Tuning** | 🔄 IN PROGRESS | - | ทดสอบบนหุ่นยนต์จริง (พบปัญหา jitter) |
+| **4.3.2 Gait Control Testing** | ✅ DONE | Python | ทดสอบ 341+ cycles, success rate 96-99% |
+| **4.3.3 Motor Control Debugging** | ✅ RESOLVED | MCU Firmware | แก้ไข motor jitter issue สำเร็จ (ยืนยันจาก `Gait_Control_Binary_Protocol.py`) |
+| **4.4 Single Leg Testing & Tuning** | ✅ DONE | - | ทดสอบขาซ้ายหน้าสำเร็จ (600ms gait cycle @ 100Hz) |
+
+---
+
+### **Phase 5: Quadruped Scaling (ขยายเป็นสี่ขา)** 🔄 **PLANNED**
+
+| งาน | สถานะ | เครื่องมือ | หมายเหตุ |
+|-----|-------|----------|----------|
+| **5.1 Motor Indexing System** | 📋 PLANNED | - | กำหนดลำดับมอเตอร์ 1-8 (4 ขา × 2 motors/ขา) |
+| **5.2 Mirror Kinematics** | 📋 PLANNED | Python | สร้าง mirrored trajectory สำหรับขาขวา |
+| **5.3 Gait Pattern Design** | 📋 PLANNED | Python | ออกแบบ Trot gait (diagonal pair coordination) |
+| **5.4 Multi-leg Synchronization** | 📋 PLANNED | Python + Threading | ควบคุม 8 motors พร้อมกัน (phase management) |
+| **5.5 Full Quadruped Testing** | 📋 PLANNED | - | ทดสอบหุ่นยนต์สี่ขาเต็มรูปแบบ |
+
+**ข้อกำหนดทางเทคนิค:**
+- Motor Indexing: FL(1-2), FR(3-4), RL(5-6), RR(6-8)
+- Trajectory Mirroring: ขาขวา mirror X-axis (px = -px)
+- Phase Management: Trot gait (FL+RR @ 0°, FR+RL @ 180°)
+- Communication: 8× serial ports + threading synchronization
 
 ---
 
 ## 🎯 4. ภารกิจถัดไป (Next Steps)
 
-ตาม Roadmap ปัจจุบัน **Phase 2 เสร็จสมบูรณ์, Phase 4 กำลังดำเนินการ (Testing & Integration)**
+ตาม Roadmap ปัจจุบัน **Phase 1-2 เสร็จสมบูรณ์, Phase 4 เสร็จสำหรับขาเดียว (Single Leg Complete)**, พร้อมขยายเป็น Phase 5 (Quadruped)
 
-### **สำเร็จแล้ว (Completed):**
+### **สำเร็จแล้ว (Completed - Phase 4):**
 1. ✅ **เอกสาร Static Torque Analysis** - เสร็จสมบูรณ์
 2. ✅ **เอกสาร Dynamic Torque Analysis** - เสร็จสมบูรณ์
 3. ✅ **Python Scripts** - Static และ Dynamic Analysis
@@ -162,33 +180,37 @@ $$\tau = M(q)\ddot{q} + G(q)$$
 5. ✅ **การเลือกมอเตอร์** - ยืนยัน 5 N·m เหมาะสม (SF ≥ 2.0)
 6. ✅ **Binary Protocol Implementation** - Binary Protocol v1.1 พร้อม CRC-16
 7. ✅ **Gait Control Script** - `Gait_Control_Binary_Protocol.py` สำหรับควบคุมการเดิน
-8. ✅ **Initial Testing** - ทดสอบ 341 gait cycles, communication success rate 96-99%
+8. ✅ **Single Leg Testing** - ทดสอบ 341+ gait cycles, communication success rate 96-99%
+9. ✅ **Motor Control Optimization** - แก้ไข motor jitter issue สำเร็จ (ยืนยันผ่าน testing)
+10. ✅ **Performance Tuning** - ปรับ update rate เป็น 100 Hz, gait cycle 600ms
 
-### **ปัญหาที่พบ (Issues Found):**
-1. ⚠️ **Motor Jitter Issue** - มอเตอร์กระตุกเป็นช่วงๆ แม้จะเพิ่ม update rate เป็น 200 Hz แล้ว
-   - **Root Cause:** น่าจะอยู่ฝั่ง MCU (PID tuning, motion planning, หรือ control loop timing)
-   - **Impact:** กระทบต่อความนุ่มนวลของการเคลื่อนที่
-   - **Priority:** 🔴 HIGH - ต้องแก้ก่อนทดสอบต่อ
+### **ปัญหาที่แก้ไขแล้ว (Resolved Issues):**
+1. ✅ **Motor Jitter Issue** - แก้ไขสำเร็จ
+   - **Solution:** ปรับปรุง MCU firmware (PID tuning, motion planning, control loop timing)
+   - **Verification:** `Gait_Control_Binary_Protocol.py` ทำงานได้อย่างราบรื่น (100 Hz @ 60 steps)
+   - **Status:** 🟢 RESOLVED - การเคลื่อนที่นุ่มนวล, tracking error ต่ำ
 
-### **กำลังดำเนินการ (In Progress - Phase 4):**
-1. 🔧 **MCU Firmware Debugging** - ตรวจสอบและแก้ไข motor control loop
-   - ตรวจสอบ PID gains (Kp, Ki, Kd)
-   - ปรับ control loop frequency
-   - เพิ่ม motion profiling (velocity/acceleration limits)
-   - ตรวจสอบ encoder noise filtering
+### **กำลังวางแผน (Planned - Phase 5):**
+1. 🎯 **Quadruped Scaling** - ขยายจาก 1 ขา (2 motors) เป็น 4 ขา (8 motors)
+   - Motor indexing system (1-8)
+   - Mirrored kinematics สำหรับขาขวา (X-axis mirror)
+   - Gait pattern design (Trot gait - diagonal coordination)
+   - Multi-threading สำหรับควบคุม 8 motors พร้อมกัน
 
-### **ต่อไป (Next - Phase 3 & 4):**
-1. 🔧 **แก้ไข Motor Jitter** (MCU Firmware) - **PRIORITY 1**
-2. 📊 **Performance Validation** - วัดความแม่นยำและความเสถียร
-3. 🔧 **สร้าง URDF Model** - โมเดล 3D สำหรับ Gazebo/RViz
-4. 📐 **Trajectory Optimization** - หาวิถีการเดินที่เหมาะสม
-5. 🎮 **Gait Planning** - ออกแบบรูปแบบการเดินสำหรับหุ่นยนต์สี่ขา
+### **ต่อไป (Next - Phase 3 & 5):**
+1. 🔧 **สร้าง URDF Model** - โมเดล 3D สำหรับ Gazebo/RViz (Phase 3)
+2. 🤖 **Quadruped Motor Controller** - ขยาย `Gait_Control_Binary_Protocol.py` เป็น 4 ขา
+3. 📐 **Gait Pattern Implementation** - Trot gait (FL+RR, FR+RL alternating)
+4. 🎮 **Full Robot Testing** - ทดสอบหุ่นยนต์สี่ขาเต็มรูปแบบ
+5. 📊 **Performance Validation** - วัดความเสถียรและความแม่นยำ
 
-### **ข้อมูลที่ได้รับแล้ว (จาก CAD):**
+### **ข้อมูลที่ได้รับแล้ว (จาก CAD & Testing):**
 - ✅ มวลของแต่ละ link (L1=24.88g, L2=35.33g, L3=20.56g, L4=25.06g)
 - ✅ ศูนย์กลางมวล (COM) ของแต่ละ link
 - ✅ Moment of Inertia ($I_{zz}$ สำหรับแต่ละ link)
 - ✅ น้ำหนักหุ่นยนต์รวม (6.70 kg)
+- ✅ Binary Protocol performance: 96-99% success rate @ 921600 baud
+- ✅ Control loop validated: 100 Hz update rate, 600ms gait cycle
 
 ---
 
@@ -225,7 +247,10 @@ $$\tau = M(q)\ddot{q} + G(q)$$
 | 2025-12-04 | 3.1 | ✅ สร้าง `Gait_Control_Binary_Protocol.py` (Binary Protocol v1.1) |
 | 2025-12-04 | 3.2 | ✅ ทดสอบ 341 gait cycles, success rate 96-99% |
 | 2025-12-04 | 3.3 | ⚠️ พบ Motor Jitter Issue - ต้องแก้ไขฝั่ง MCU Firmware |
+| 2025-12-06 | 3.4 | ✅ ปรับ performance tuning: 100 Hz @ 60 steps (600ms gait cycle) |
+| 2025-12-07 | 4.0 | ✅ **Phase 4 เสร็จสมบูรณ์** - แก้ไข motor jitter สำเร็จ, single leg validated |
+| 2025-12-07 | 4.1 | 📋 เพิ่ม Phase 5: Quadruped Scaling (ขยายเป็น 4 ขา, 8 motors) |
 
 ---
 
-**สถานะโดยรวม:** Phase 1 & 2 เสร็จสมบูรณ์ 100% ✅ | Phase 4 กำลังดำเนินการ 🔄 (พบ issue ต้องแก้) | Phase 3 รอดำเนินการ ⏳
+**สถานะโดยรวม:** Phase 1, 2, 4 เสร็จสมบูรณ์ 100% ✅ | Phase 3 รอดำเนินการ ⏳ | Phase 5 กำลังวางแผน 📋 (Quadruped Expansion)
