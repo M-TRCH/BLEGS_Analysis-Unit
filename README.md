@@ -242,23 +242,30 @@ print(f"Theta B: {angles_deg[1]:.2f}°")
 ## 🔗 เอกสารอ้างอิง
 
 ### เอกสารภายใน
-- `docs/forward-kinematics-5bar.pdf` - FK และ Jacobian
-- `docs/inverse-kinematics-analytical.pdf` - IK Analytical พร้อมผลการทดสอบ
+- `docs/Phase1_Kinematics/Phase1.1_Forward_Kinematics_5Bar.pdf` - FK และ Jacobian
+- `docs/Phase1_Kinematics/Phase1.2_Inverse_Kinematics_Analytical.pdf` - IK Analytical พร้อมผลการทดสอบ
+- `docs/Phase2_Dynamics/Phase2.1_Static_Torque_Analysis.pdf` - Static Torque Analysis
+- `docs/Phase2_Dynamics/Phase2.2_Dynamic_Torque_Analysis.pdf` - Dynamic Torque Analysis
+- `docs/Phase3_Simulation/Phase3.1_Gait_Control_Simulation.pdf` - Gait Control Simulation with PyBullet
 
 ### Code Implementation
 - `scripts/kinematics/IK-Five-Bar-Leg-Analytical.py` - Implementation ตามเอกสาร
 - `scripts/kinematics/IK-Five-Bar-Leg-Numerical.py` - Newton-Raphson solver
+- `scripts/simulation/gait_control/gait_control_trot.py` - PyBullet Trot Gait Simulation
 
 ## 📊 สถิติโปรเจ็กต์
 
-- **เอกสาร LaTeX:** 2 ไฟล์
-- **Python Scripts:** 17 ไฟล์
+- **เอกสาร LaTeX:** 5 ไฟล์ (Phase 1-3)
+- **Python Scripts:** 20+ ไฟล์
   - Kinematics: 6 ไฟล์
   - Vision: 5 ไฟล์
-  - Control: 2 ไฟล์
+  - Control: 5 ไฟล์
   - Analysis: 5 ไฟล์
+  - Simulation: 2 ไฟล์ (Phase 3 Gait Control)
 - **Test Scripts:** 6 ไฟล์
+- **URDF Models:** 1 quadruped model (16 joints)
 - **Configurations tested:** 4 (3 valid, 1 invalid)
+- **Phase Progress:** 1, 2, 3, 4 Complete ✅ | Phase 5 Planning 📋
 
 ## 👨‍💻 ผู้พัฒนา
 
@@ -266,4 +273,4 @@ print(f"Theta B: {angles_deg[1]:.2f}°")
 
 ## 📅 อัพเดทล่าสุด
 
-17 พฤศจิกายน 2568
+8 ธันวาคม 2568 - เพิ่ม Phase 3 Gait Control Simulation พร้อมเอกสาร LaTeX
