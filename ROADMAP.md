@@ -126,13 +126,21 @@ $$\tau = M(q)\ddot{q} + G(q)$$
 
 ---
 
-### **Phase 3: Simulation & Planning (การจำลองและวางแผน)** ⏳ **PENDING**
+### **Phase 3: Simulation & Planning (การจำลองและวางแผน)** ✅ **DONE**
 
 | งาน | สถานะ | เครื่องมือ | หมายเหตุ |
 |-----|-------|----------|----------|
-| **3.1 สร้าง URDF Model** | ⏳ PENDING | ROS/Gazebo | โมเดล 3D ของขาหุ่นยนต์ |
-| **3.2 Trajectory Generation** | ⏳ PENDING | Python/MATLAB | วางแผนเส้นทางการเคลื่อนที่ |
-| **3.3 Gait Planning** | ⏳ PENDING | Python | รูปแบบการเดิน (Walking Pattern) |
+| **3.1 สร้าง URDF Model** | ✅ DONE | PyBullet | Quadruped 4-leg, 2-DOF/leg |
+| **3.2 Gait Control Simulation** | ✅ DONE | PyBullet + Python | Trot gait with balance control |
+| **3.3 IK Integration** | ✅ DONE | Python | 2-DOF per leg (thigh + shank) |
+| **3.4 Balance Controller** | ✅ DONE | Python | PD control (pitch & roll) |
+
+**ผลลัพธ์:**
+- **URDF Model:** `models/urdf/quadruped/my_robot.urdf`
+- **Gait Script:** `scripts/simulation/gait_control/gait_control_trot.py`
+- **Gait Pattern:** Trot (FR+RL, FL+RR diagonal pairs)
+- **Parameters:** Step=50mm, Lift=50mm, Cycle=600ms
+- **สถานะ:** ✅ **PASS** - Simulation runs successfully
 
 ---
 
@@ -170,19 +178,21 @@ $$\tau = M(q)\ddot{q} + G(q)$$
 
 ## 🎯 4. ภารกิจถัดไป (Next Steps)
 
-ตาม Roadmap ปัจจุบัน **Phase 1-2 เสร็จสมบูรณ์, Phase 4 เสร็จสำหรับขาเดียว (Single Leg Complete)**, พร้อมขยายเป็น Phase 5 (Quadruped)
+ตาม Roadmap ปัจจุบัน **Phase 1-4 เสร็จสมบูรณ์**, พร้อมขยายเป็น Phase 5 (Quadruped Hardware)
 
-### **สำเร็จแล้ว (Completed - Phase 4):**
+### **สำเร็จแล้ว (Completed - Phase 1-4):**
 1. ✅ **เอกสาร Static Torque Analysis** - เสร็จสมบูรณ์
 2. ✅ **เอกสาร Dynamic Torque Analysis** - เสร็จสมบูรณ์
 3. ✅ **Python Scripts** - Static และ Dynamic Analysis
 4. ✅ **กราฟเปรียบเทียบ** - Torque, Velocity, Acceleration
 5. ✅ **การเลือกมอเตอร์** - ยืนยัน 5 N·m เหมาะสม (SF ≥ 2.0)
 6. ✅ **Binary Protocol Implementation** - Binary Protocol v1.1 พร้อม CRC-16
-7. ✅ **Gait Control Script** - `Gait_Control_Binary_Protocol.py` สำหรับควบคุมการเดิน
+7. ✅ **Gait Control Script (Hardware)** - `Gait_Control_Binary_Protocol.py` สำหรับควบคุมการเดิน
 8. ✅ **Single Leg Testing** - ทดสอบ 341+ gait cycles, communication success rate 96-99%
 9. ✅ **Motor Control Optimization** - แก้ไข motor jitter issue สำเร็จ (ยืนยันผ่าน testing)
 10. ✅ **Performance Tuning** - ปรับ update rate เป็น 100 Hz, gait cycle 600ms
+11. ✅ **URDF Model** - สร้างโมเดล quadruped 4-leg สำหรับ PyBullet
+12. ✅ **Gait Control Simulation** - Trot gait simulation พร้อม balance control
 
 ### **ปัญหาที่แก้ไขแล้ว (Resolved Issues):**
 1. ✅ **Motor Jitter Issue** - แก้ไขสำเร็จ
@@ -197,12 +207,12 @@ $$\tau = M(q)\ddot{q} + G(q)$$
    - Gait pattern design (Trot gait - diagonal coordination)
    - Multi-threading สำหรับควบคุม 8 motors พร้อมกัน
 
-### **ต่อไป (Next - Phase 3 & 5):**
-1. 🔧 **สร้าง URDF Model** - โมเดล 3D สำหรับ Gazebo/RViz (Phase 3)
-2. 🤖 **Quadruped Motor Controller** - ขยาย `Gait_Control_Binary_Protocol.py` เป็น 4 ขา
-3. 📐 **Gait Pattern Implementation** - Trot gait (FL+RR, FR+RL alternating)
-4. 🎮 **Full Robot Testing** - ทดสอบหุ่นยนต์สี่ขาเต็มรูปแบบ
-5. 📊 **Performance Validation** - วัดความเสถียรและความแม่นยำ
+### **ต่อไป (Next - Phase 5):**
+1. 🤖 **Quadruped Hardware Controller** - ขยาย `Gait_Control_Binary_Protocol.py` เป็น 4 ขา
+2. 📐 **Hardware Gait Implementation** - Trot gait (FL+RR, FR+RL alternating)
+3. 🎮 **Full Robot Testing** - ทดสอบหุ่นยนต์สี่ขาเต็มรูปแบบ
+4. 📊 **Performance Validation** - วัดความเสถียรและความแม่นยำ
+5. 🔄 **Sim-to-Real Transfer** - นำผลจาก PyBullet simulation ไปใช้กับ hardware
 
 ### **ข้อมูลที่ได้รับแล้ว (จาก CAD & Testing):**
 - ✅ มวลของแต่ละ link (L1=24.88g, L2=35.33g, L3=20.56g, L4=25.06g)
@@ -222,6 +232,7 @@ $$\tau = M(q)\ddot{q} + G(q)$$
 | Inverse Kinematics | [`docs/Phase1_Kinematics/Phase1.2_Inverse_Kinematics_Analytical.tex`](docs/Phase1_Kinematics/Phase1.2_Inverse_Kinematics_Analytical.tex) | ✅ DONE | IK Analytical (4 configurations) |
 | Static Torque Analysis | [`docs/Phase2_Dynamics/Phase2.1_Static_Torque_Analysis.tex`](docs/Phase2_Dynamics/Phase2.1_Static_Torque_Analysis.tex) | ✅ DONE | Phase 2.1 - Static analysis |
 | Dynamic Torque Analysis | [`docs/Phase2_Dynamics/Phase2.2_Dynamic_Torque_Analysis.tex`](docs/Phase2_Dynamics/Phase2.2_Dynamic_Torque_Analysis.tex) | ✅ DONE | Phase 2.2 - Dynamic analysis |
+| Gait Control Simulation | [`scripts/simulation/gait_control/README.md`](scripts/simulation/gait_control/README.md) | ✅ DONE | Phase 3 - PyBullet gait control |
 | README | [`README.md`](README.md) | ✅ DONE | ภาพรวมโปรเจ็กต์ |
 
 ---
@@ -250,7 +261,9 @@ $$\tau = M(q)\ddot{q} + G(q)$$
 | 2025-12-06 | 3.4 | ✅ ปรับ performance tuning: 100 Hz @ 60 steps (600ms gait cycle) |
 | 2025-12-07 | 4.0 | ✅ **Phase 4 เสร็จสมบูรณ์** - แก้ไข motor jitter สำเร็จ, single leg validated |
 | 2025-12-07 | 4.1 | 📋 เพิ่ม Phase 5: Quadruped Scaling (ขยายเป็น 4 ขา, 8 motors) |
+| 2025-12-08 | 5.0 | ✅ **Phase 3 เสร็จสมบูรณ์** - PyBullet gait simulation สำเร็จ |
+| 2025-12-08 | 5.1 | ✅ สร้าง URDF quadruped + Trot gait script พร้อม balance control |
 
 ---
 
-**สถานะโดยรวม:** Phase 1, 2, 4 เสร็จสมบูรณ์ 100% ✅ | Phase 3 รอดำเนินการ ⏳ | Phase 5 กำลังวางแผน 📋 (Quadruped Expansion)
+**สถานะโดยรวม:** Phase 1, 2, 3, 4 เสร็จสมบูรณ์ 100% ✅ | Phase 5 กำลังวางแผน 📋 (Quadruped Hardware Expansion)
