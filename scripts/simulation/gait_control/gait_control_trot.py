@@ -76,12 +76,12 @@ RL_all_joint_ids = [joint_name_to_id['RL_hip_joint'], joint_name_to_id['RL_thigh
 # =====================================================================
 # ตำแหน่ง Hip (ตาม URDF ใหม่)
 base_x_front = 0.19875  # FR/FL hip position x
-base_x_rear = 0.16      # RR/RL hip position x
+base_x_rear = -0.16     # RR/RL hip position x (ติดลบ ตาม URDF)
 base_y = 0.1535         # hip position y (±)
 z_height = -0.20        # ความสูงยืน (ขายาว 250mm = 105+145)
 
 # ใช้ค่ากลางเพื่อความสมมาตร (ป้องกันการเลี้ยว)
-base_x_avg = (base_x_front + base_x_rear) / 2.0  # 0.179375
+base_x_avg = (base_x_front + abs(base_x_rear)) / 2.0  # 0.179375
 
 home_foot_positions = {
     'FR_foot_link': [base_x_avg, -base_y, z_height],
