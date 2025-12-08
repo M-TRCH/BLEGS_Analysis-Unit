@@ -176,9 +176,46 @@ $$\tau = M(q)\ddot{q} + G(q)$$
 
 ---
 
+### **Phase 6: Sensor Feedback System (ระบบเซนเซอร์ป้อนกลับ)** 📋 **PLANNED**
+
+**เป้าหมาย:** ติดตั้งเซนเซอร์ BNO086 IMU เพื่อรับข้อมูล orientation และใช้เป็น feedback ในการชดเชยท่าทางการเดินและรักษาสมดุลของหุ่นยนต์
+
+| งาน | สถานะ | เครื่องมือ | หมายเหตุ |
+|-----|-------|----------|----------|
+| **6.1 BNO086 Hardware Integration** | 📋 PLANNED | Python + USB2TTL | เชื่อมต่อเซนเซอร์กับ PC ผ่าน USB-to-TTL converter |
+| **6.2 IMU Data Acquisition** | 📋 PLANNED | Python (pyserial) | อ่านข้อมูล quaternion, gyro, accelerometer |
+| **6.3 Sensor Fusion & Calibration** | 📋 PLANNED | Python | คำนวณ pitch, roll, yaw จาก quaternion data |
+| **6.4 Balance Feedback Controller** | 📋 PLANNED | Python + PD Control | ปรับ gait trajectory ตาม IMU feedback real-time |
+| **6.5 Gait Compensation Testing** | 📋 PLANNED | Hardware | ทดสอบการชดเชยท่าทางบนพื้นเอียง (tilted surface) |
+| **6.6 Balance Stability Validation** | 📋 PLANNED | Hardware | ทดสอบการรักษาสมดุลแบบ dynamic (push recovery) |
+
+**ข้อกำหนดทางเทคนิค:**
+- **Hardware:** BNO086 IMU + USB2TTL converter (CP2102/CH340)
+- **Communication:** UART @ 115200 baud (I2C optional)
+- **Update Rate:** 100 Hz (sync กับ motor control loop)
+- **Data Format:** Quaternion (w, x, y, z) + Angular Velocity
+- **Coordinate Frame:** Robot body frame (X-forward, Y-left, Z-up)
+- **Control Law:** 
+  - Pitch compensation: ปรับ Z-height ของขาหน้า/หลัง
+  - Roll compensation: ปรับ Z-height ของขาซ้าย/ขวา
+  - PD gains: Kp_pitch, Kd_pitch, Kp_roll, Kd_roll
+
+**Dependencies:**
+- ต้องการ Phase 5.5 (Full Quadruped Testing) เสร็จก่อน
+- ต้องมี multi-leg synchronization ทำงานได้เสถียร
+- ต้องการ balance controller algorithm จาก Phase 3.4
+
+**ผลลัพธ์ที่คาดหวัง:**
+- หุ่นยนต์สามารถตรวจจับและแก้ไขความเอียงได้อัตโนมัติ
+- รักษาสมดุลได้บนพื้นเอียง ±15° (pitch/roll)
+- ชดเชย disturbance ได้ภายใน 0.5-1.0 วินาที
+- Latency รวม < 20 ms (sensor → controller → motor)
+
+---
+
 ## 🎯 4. ภารกิจถัดไป (Next Steps)
 
-ตาม Roadmap ปัจจุบัน **Phase 1-4 เสร็จสมบูรณ์**, พร้อมขยายเป็น Phase 5 (Quadruped Hardware)
+ตาม Roadmap ปัจจุบัน **Phase 1-4 เสร็จสมบูรณ์**, พร้อมขยายเป็น Phase 5 (Quadruped Hardware) และ Phase 6 (Sensor Feedback)
 
 ### **สำเร็จแล้ว (Completed - Phase 1-4):**
 1. ✅ **เอกสาร Static Torque Analysis** - เสร็จสมบูรณ์
@@ -198,6 +235,30 @@ $$\tau = M(q)\ddot{q} + G(q)$$
 1. ✅ **Motor Jitter Issue** - แก้ไขสำเร็จ
    - **Solution:** ปรับปรุง MCU firmware (PID tuning, motion planning, control loop timing)
    - **Verification:** `Gait_Control_Binary_Protocol.py` ทำงานได้อย่างราบรื่น (100 Hz @ 60 steps)
+
+### **กำลังดำเนินการ (In Progress - Phase 5):**
+1. 🔄 **Phase 5.1-5.5:** Quadruped Hardware Scaling
+   - Motor indexing system (8 motors)
+   - Mirror kinematics for right-side legs
+   - Trot gait pattern implementation
+   - Multi-leg synchronization
+   - Full quadruped testing
+
+### **งานถัดไป (Next - Phase 6):**
+1. 📋 **Phase 6: Sensor Feedback System** 
+   - **Priority: HIGH** - จำเป็นสำหรับ balance control และ gait stability
+   - **Key Features:**
+     - BNO086 IMU integration (USB2TTL)
+     - Real-time orientation feedback (100 Hz)
+     - Pitch/Roll compensation controller
+     - Gait adjustment based on IMU data
+   - **Dependencies:** ต้องการ Phase 5.5 เสร็จก่อน
+   - **Timeline:** เริ่มได้ทันทีหลังจากทดสอบ quadruped สำเร็จ
+
+### **ลำดับความสำคัญที่แนะนำ:**
+1. **Phase 5 (Priority: CRITICAL)** - พื้นฐานสำหรับ quadruped robot
+2. **Phase 6 (Priority: HIGH)** - ปรับปรุงความเสถียรและ safety
+3. **Future Phases** - Vision, autonomous navigation, terrain adaptation
    - **Status:** 🟢 RESOLVED - การเคลื่อนที่นุ่มนวล, tracking error ต่ำ
 
 ### **กำลังวางแผน (Planned - Phase 5):**
