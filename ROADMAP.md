@@ -3,7 +3,7 @@
 **โปรเจ็กต์:** การวิเคราะห์จลนศาสตร์ (Kinematics) และพลศาสตร์ (Dynamics) ของกลไกขาหุ่นยนต์ 5-Bar Linkage แบบมี Offset เพื่อใช้ในการจำลอง (Simulation) และการควบคุม (Control) ต่อไป
 
 **เจ้าของโปรเจ็กต์:** นายธีรโชติ เมืองจำนงค์  
-**อัพเดทล่าสุด:** 7 ธันวาคม 2025
+**อัพเดทล่าสุด:** 8 ธันวาคม 2025
 
 ---
 
@@ -232,7 +232,7 @@ $$\tau = M(q)\ddot{q} + G(q)$$
 | Inverse Kinematics | [`docs/Phase1_Kinematics/Phase1.2_Inverse_Kinematics_Analytical.tex`](docs/Phase1_Kinematics/Phase1.2_Inverse_Kinematics_Analytical.tex) | ✅ DONE | IK Analytical (4 configurations) |
 | Static Torque Analysis | [`docs/Phase2_Dynamics/Phase2.1_Static_Torque_Analysis.tex`](docs/Phase2_Dynamics/Phase2.1_Static_Torque_Analysis.tex) | ✅ DONE | Phase 2.1 - Static analysis |
 | Dynamic Torque Analysis | [`docs/Phase2_Dynamics/Phase2.2_Dynamic_Torque_Analysis.tex`](docs/Phase2_Dynamics/Phase2.2_Dynamic_Torque_Analysis.tex) | ✅ DONE | Phase 2.2 - Dynamic analysis |
-| Gait Control Simulation | [`scripts/simulation/gait_control/README.md`](scripts/simulation/gait_control/README.md) | ✅ DONE | Phase 3 - PyBullet gait control |
+| Gait Control Simulation | [`docs/Phase3_Simulation/Phase3.1_Gait_Control_Simulation.tex`](docs/Phase3_Simulation/Phase3.1_Gait_Control_Simulation.tex) | ✅ DONE | Phase 3 - PyBullet gait control |
 | README | [`README.md`](README.md) | ✅ DONE | ภาพรวมโปรเจ็กต์ |
 
 ---

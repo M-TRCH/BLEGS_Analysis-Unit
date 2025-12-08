@@ -1,56 +1,124 @@
-# BLEGS Documentation
+# BLEGS Analysis Unit - Documentation
 
-This folder contains technical documentation for the BLEGS (Bio-inspired Legged Ground System) quadruped robot project.
+เอกสารวิชาการสำหรับโปรเจ็กต์หุ่นยนต์สี่ขา BLEGS (Bipedal Legged Robot)
 
-## Folder Structure
+## 📁 โครงสร้างโฟลเดอร์
 
 ```
 docs/
-├── Phase1_Kinematics/          # Kinematic Analysis Documents
-│   ├── forward-kinematics-5bar.tex/.pdf
-│   └── inverse-kinematics-analytical.tex/.pdf
+├── Phase1_Kinematics/          # เอกสาร Phase 1: จลนศาสตร์
+│   ├── Phase1.1_Forward_Kinematics_5Bar.tex
+│   └── Phase1.2_Inverse_Kinematics_Analytical.tex
 │
-├── Phase2_Dynamics/            # Dynamic Analysis Documents
-│   ├── static-torque-analysis.tex/.pdf
+├── Phase2_Dynamics/            # เอกสาร Phase 2: พลศาสตร์
+│   ├── Phase2.1_Static_Torque_Analysis.tex
 │   └── Phase2.2_Dynamic_Torque_Analysis.tex
 │
-├── figures/                    # Shared figures and diagrams
+├── Phase3_Simulation/          # เอกสาร Phase 3: การจำลอง
+│   └── Phase3.1_Gait_Control_Simulation.tex
 │
-└── output/                     # LaTeX compilation artifacts (aux, log, out files)
+├── output/                     # ไฟล์ PDF ที่คอมไพล์แล้ว
+│   ├── Phase1.1_Forward_Kinematics_5Bar.pdf
+│   ├── Phase1.2_Inverse_Kinematics_Analytical.pdf
+│   ├── Phase2.1_Static_Torque_Analysis.pdf
+│   ├── Phase2.2_Dynamic_Torque_Analysis.pdf
+│   ├── Phase3.1_Gait_Control_Simulation.pdf
+│   └── *.aux, *.log, *.out, *.toc (auxiliary files)
+│
+├── figures/                    # รูปภาพสำหรับเอกสาร
+│
+└── README.md                   # ไฟล์นี้
 ```
 
-## Documents Overview
+## 📚 เอกสารทั้งหมด
 
-### Phase 1: Kinematics
-- **Forward Kinematics (5-Bar)** - Mathematical derivation of end-effector position from joint angles
-- **Inverse Kinematics (Analytical)** - Closed-form solution for joint angles from desired foot position
+### Phase 1: Kinematics Analysis
 
-### Phase 2: Dynamics
-- **Static Torque Analysis** - Gravity-based torque requirements at standing position
-- **Dynamic Torque Analysis (Phase 2.2)** - Complete dynamic analysis including:
-  - Inertial effects
-  - Mass distribution (6.70 kg total robot mass)
-  - Elliptical gait pattern (1 Hz)
-  - Motor selection validation (5 N·m target)
+#### 1.1 Forward Kinematics of 5-Bar Linkage
+- **ไฟล์:** `Phase1.1_Forward_Kinematics_5Bar.tex`
+- **PDF:** [`output/Phase1.1_Forward_Kinematics_5Bar.pdf`](output/Phase1.1_Forward_Kinematics_5Bar.pdf)
+- **เนื้อหา:** การวิเคราะห์จลนศาสตร์เชิงหน้าสำหรับกลไก 5-Bar Linkage พร้อม Jacobian Matrix
 
-## Compiling LaTeX Documents
+#### 1.2 Inverse Kinematics (Analytical)
+- **ไฟล์:** `Phase1.2_Inverse_Kinematics_Analytical.tex`
+- **PDF:** [`output/Phase1.2_Inverse_Kinematics_Analytical.pdf`](output/Phase1.2_Inverse_Kinematics_Analytical.pdf)
+- **เนื้อหา:** การแก้ IK แบบ Analytical พร้อมวิเคราะห์ 4 Configurations
 
-To compile any LaTeX document:
+### Phase 2: Dynamics Analysis
+
+#### 2.1 Static Torque Analysis
+- **ไฟล์:** `Phase2.1_Static_Torque_Analysis.tex`
+- **PDF:** [`output/Phase2.1_Static_Torque_Analysis.pdf`](output/Phase2.1_Static_Torque_Analysis.pdf)
+- **เนื้อหา:** การวิเคราะห์แรงบิดแบบสถิตด้วย Virtual Work และ Jacobian Transpose
+
+#### 2.2 Dynamic Torque Analysis
+- **ไฟล์:** `Phase2.2_Dynamic_Torque_Analysis.tex`
+- **PDF:** [`output/Phase2.2_Dynamic_Torque_Analysis.pdf`](output/Phase2.2_Dynamic_Torque_Analysis.pdf)
+- **เนื้อหา:** การวิเคราะห์แรงบิดแบบไดนามิกด้วย Recursive Newton-Euler Algorithm
+
+### Phase 3: Simulation
+
+#### 3.1 Gait Control Simulation
+- **ไฟล์:** `Phase3.1_Gait_Control_Simulation.tex`
+- **PDF:** [`output/Phase3.1_Gait_Control_Simulation.pdf`](output/Phase3.1_Gait_Control_Simulation.pdf)
+- **เนื้อหา:** การจำลองการควบคุมการเดินแบบ Trot Gait ด้วย PyBullet พร้อม Balance Control
+
+## 🔧 การคอมไพล์เอกสาร
+
+### ข้อกำหนด
+- **LaTeX Engine:** XeLaTeX
+- **ฟอนต์:** TH SarabunPSK (สำหรับภาษาไทย)
+- **Packages:** fontspec, polyglossia, amsmath, amssymb, geometry, graphicx, hyperref, booktabs, tikz
+
+### คำสั่งคอมไพล์
 
 ```bash
-cd docs/Phase1_Kinematics  # or Phase2_Dynamics
-pdflatex forward-kinematics-5bar.tex
+# คอมไพล์ Phase 1.1
+cd Phase1_Kinematics
+xelatex Phase1.1_Forward_Kinematics_5Bar.tex
+
+# คอมไพล์ Phase 1.2
+xelatex Phase1.2_Inverse_Kinematics_Analytical.tex
+
+# คอมไพล์ Phase 2.1
+cd ../Phase2_Dynamics
+xelatex Phase2.1_Static_Torque_Analysis.tex
+
+# คอมไพล์ Phase 2.2
+xelatex Phase2.2_Dynamic_Torque_Analysis.tex
+
+# คอมไพล์ Phase 3.1
+cd ../Phase3_Simulation
+xelatex Phase3.1_Gait_Control_Simulation.tex
 ```
 
-For documents with references or multiple passes:
+### ย้ายไฟล์ไป output/ (PowerShell)
 
-```bash
-pdflatex document.tex
-pdflatex document.tex  # Second pass for references
+```powershell
+# ย้าย PDF และ auxiliary files
+Move-Item -Path "Phase*\*.pdf" -Destination "output\" -Force
+Move-Item -Path "Phase*\*.aux,*.log,*.out,*.toc" -Destination "output\" -Force
 ```
 
-## Notes
+## 📊 สถิติเอกสาร
 
-- All auxiliary files (.aux, .log, .out) are automatically moved to `output/` folder
-- Figures are stored in the shared `figures/` folder and referenced relatively
-- Source .tex files and compiled .pdf files are kept together for easy access
+- **จำนวนเอกสาร:** 5 ไฟล์
+- **Phase 1:** 2 เอกสาร (Kinematics)
+- **Phase 2:** 2 เอกสาร (Dynamics)
+- **Phase 3:** 1 เอกสาร (Simulation)
+- **ภาษา:** ไทย/อังกฤษ (Bilingual)
+- **รูปแบบ:** Academic Paper Format
+
+## 🔗 เอกสารที่เกี่ยวข้อง
+
+- **GitHub Repository:** [M-TRCH/BLEGS_Analysis-Unit](https://github.com/M-TRCH/BLEGS_Analysis-Unit)
+- **Main README:** [`../README.md`](../README.md)
+- **ROADMAP:** [`../ROADMAP.md`](../ROADMAP.md)
+
+## 👨‍💻 ผู้เขียน
+
+นายธีรโชติ เมืองจำนงค์
+
+## 📅 อัพเดทล่าสุด
+
+8 ธันวาคม 2025 - เพิ่มเอกสาร Phase 3.1 Gait Control Simulation
