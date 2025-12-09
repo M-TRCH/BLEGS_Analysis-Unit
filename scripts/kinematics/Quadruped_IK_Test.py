@@ -53,8 +53,19 @@ MOTOR_INDICES = {
 # --- Leg Motor Positions in Leg Frame (mm) ---
 # For IK calculations, each leg uses local frame with origin at hip center
 # X-axis points down, Y-axis points outward from body
-P_A = np.array([-MOTOR_SPACING/2, 0.0])  # Motor A position (inner motor)
-P_B = np.array([MOTOR_SPACING/2, 0.0])   # Motor B position (outer motor)
+# Left legs (FL, RL): Motor A at -42.5mm, Motor B at +42.5mm
+# Right legs (FR, RR): Mirrored - Motor A at +42.5mm, Motor B at -42.5mm
+P_A_LEFT = np.array([-MOTOR_SPACING/2, 0.0])  # Motor A position for left legs
+P_B_LEFT = np.array([MOTOR_SPACING/2, 0.0])   # Motor B position for left legs
+P_A_RIGHT = np.array([MOTOR_SPACING/2, 0.0])  # Motor A position for right legs (mirrored)
+P_B_RIGHT = np.array([-MOTOR_SPACING/2, 0.0]) # Motor B position for right legs (mirrored)
+
+def get_motor_positions(leg_id):
+    """Get motor positions based on leg side"""
+    if leg_id in ['FL', 'RL']:
+        return P_A_LEFT, P_B_LEFT
+    else:  # FR, RR
+        return P_A_RIGHT, P_B_RIGHT
 
 # --- Default Standing Pose ---
 DEFAULT_STANCE_HEIGHT = -200.0  # Z-coordinate of foot in leg frame (mm, negative = down)
@@ -121,12 +132,14 @@ def solve_circle_intersection(center1, radius1, center2, radius2, choose_lower=T
     else:
         return P_intersection_1 if P_intersection_1[1] > P_intersection_2[1] else P_intersection_2
 
-def calculate_ik_analytical(P_F_target, elbow_C_down=True, elbow_D_down=True):
+def calculate_ik_analytical(P_F_target, P_A, P_B, elbow_C_down=True, elbow_D_down=True):
     """
     Calculate Inverse Kinematics using analytical method
     
     Args:
         P_F_target: Target foot position [x, y] in leg frame
+        P_A: Motor A position [x, y]
+        P_B: Motor B position [x, y]
         elbow_C_down: True to choose lower elbow position for joint C
         elbow_D_down: True to choose lower elbow position for joint D
         
@@ -162,11 +175,14 @@ def calculate_ik_analytical(P_F_target, elbow_C_down=True, elbow_D_down=True):
     
     return np.array([theta_A, theta_B])
 
-def calculate_fk_positions(theta_A, theta_B):
+def calculate_fk_positions(theta_A, theta_B, P_A, P_B):
     """Calculate forward kinematics positions for visualization"""
+    # Calculate P_C and P_D from motor angles
     P_C = P_A + np.array([L_AC * np.cos(theta_A), L_AC * np.sin(theta_A)])
     P_D = P_B + np.array([L_BD * np.cos(theta_B), L_BD * np.sin(theta_B)])
     
+    # Calculate P_E using circle intersection between C and D
+    # This ensures we get the same configuration as IK
     V_CD = P_D - P_C
     d = np.linalg.norm(V_CD)
     
@@ -178,8 +194,21 @@ def calculate_fk_positions(theta_A, theta_B):
             h = np.sqrt(h_squared)
             v_d = V_CD / d
             v_perp = np.array([-v_d[1], v_d[0]])
-            P_E = P_C + a * v_d - h * v_perp
-            P_F = (OFFSET_RATIO_E * P_E) - (OFFSET_RATIO_D * P_D)
+            # Choose the elbow position that gives downward foot (y < 0)
+            # Try both options and pick the one with lower P_F
+            P_E1 = P_C + a * v_d + h * v_perp
+            P_E2 = P_C + a * v_d - h * v_perp
+            
+            P_F1 = (37.0 * P_E1 - 8.0 * P_D) / 29.0
+            P_F2 = (37.0 * P_E2 - 8.0 * P_D) / 29.0
+            
+            # Choose configuration with lower foot position (more negative y)
+            if P_F1[1] < P_F2[1]:
+                P_E = P_E1
+                P_F = P_F1
+            else:
+                P_E = P_E2
+                P_F = P_F2
             
             return P_C, P_D, P_E, P_F
     
@@ -189,7 +218,7 @@ def calculate_fk_positions(theta_A, theta_B):
 # TRAJECTORY GENERATION
 # ============================================================================
 
-def generate_elliptical_trajectory(num_steps=60, lift_height=30, step_forward=60):
+def generate_elliptical_trajectory(num_steps=60, lift_height=30, step_forward=60, mirror_x=False):
     """
     Generate elliptical walking trajectory for one leg
     
@@ -197,6 +226,7 @@ def generate_elliptical_trajectory(num_steps=60, lift_height=30, step_forward=60
         num_steps: Number of steps in trajectory
         lift_height: Maximum height lift (mm)
         step_forward: Step length (mm)
+        mirror_x: If True, reverse X direction (for right side legs)
         
     Returns:
         List of (x, y) positions in leg frame
@@ -210,6 +240,8 @@ def generate_elliptical_trajectory(num_steps=60, lift_height=30, step_forward=60
     for i in range(num_steps):
         t = 2 * np.pi * i / num_steps
         px = a * np.cos(t)
+        if mirror_x:
+            px = -px  # Reverse X direction for right side legs
         py = home_y + b * np.sin(t)
         trajectory.append((px, py))
     
@@ -261,19 +293,23 @@ def control_loop():
     # Generate trajectory for each leg
     trajectories = {}
     for leg_id in ['FR', 'FL', 'RR', 'RL']:
+        # Mirror X direction for right side legs (FR, RR)
+        mirror_x = leg_id in ['FR', 'RR']
         trajectories[leg_id] = generate_elliptical_trajectory(
             num_steps=TRAJECTORY_STEPS,
             lift_height=GAIT_LIFT_HEIGHT,
-            step_forward=GAIT_STEP_FORWARD
+            step_forward=GAIT_STEP_FORWARD,
+            mirror_x=mirror_x
         )
     
     # Initialize home position
     prev_solutions = {}
     for leg_id in ['FR', 'FL', 'RR', 'RL']:
         home_pos = np.array([DEFAULT_STANCE_OFFSET_X, DEFAULT_STANCE_HEIGHT])
+        P_A, P_B = get_motor_positions(leg_id)
         # เริ่มต้นด้วย elbow_C_down=True, elbow_D_down=False
         # (เพราะมี `not elbow_D_down` ในฟังก์ชัน IK ทำให้ต้องสลับ)
-        home_angles = calculate_ik_analytical(home_pos, elbow_C_down=True, elbow_D_down=False)
+        home_angles = calculate_ik_analytical(home_pos, P_A, P_B, elbow_C_down=True, elbow_D_down=False)
         
         if not np.isnan(home_angles).any():
             with viz_lock:
@@ -318,10 +354,12 @@ def control_loop():
             
             best_solution = None
             best_distance = float('inf')
+            P_A, P_B = get_motor_positions(leg_id)
             
             for elbow_C, elbow_D in configs:
                 solution = calculate_ik_analytical(
-                    np.array([px, py]), 
+                    np.array([px, py]),
+                    P_A, P_B,
                     elbow_C_down=elbow_C, 
                     elbow_D_down=elbow_D
                 )
@@ -391,9 +429,10 @@ def create_leg_subplot(ax, leg_id, leg_name):
     ax.set_ylabel('X (mm)', fontsize=9)
     ax.set_title(f'{leg_id} - {leg_name}', fontsize=10, weight='bold')
     
-    # Get motor indices for this leg
+    # Get motor indices and positions for this leg
     motor_A_idx = leg_states[leg_id]['motor_A']
     motor_B_idx = leg_states[leg_id]['motor_B']
+    P_A, P_B = get_motor_positions(leg_id)
     
     # Draw motor positions with different colors and labels
     ax.plot(P_A[0], P_A[1], 'o', color='darkblue', markersize=10, label=f'Motor {motor_A_idx}', zorder=5)
@@ -439,8 +478,11 @@ def update_leg_plot(leg_id, plot_elements):
         theta_A, theta_B = leg_states[leg_id]['target_angles']
         target_x, target_y = leg_states[leg_id]['target_pos']
     
+    # Get motor positions for this leg
+    P_A, P_B = get_motor_positions(leg_id)
+    
     # Calculate FK for target
-    P_C, P_D, P_E, P_F = calculate_fk_positions(theta_A, theta_B)
+    P_C, P_D, P_E, P_F = calculate_fk_positions(theta_A, theta_B, P_A, P_B)
     
     if P_C is not None:
         # Update target links
