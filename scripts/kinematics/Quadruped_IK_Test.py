@@ -448,12 +448,12 @@ def create_leg_subplot(ax, leg_id, leg_name):
     
     color = leg_states[leg_id]['color']
     
-    # Target links (solid)
-    link1 = ax.plot([], [], '-', color=color, linewidth=3, label='Target', zorder=4)[0]
-    link2 = ax.plot([], [], '-', color=color, linewidth=3, zorder=4)[0]
-    link3 = ax.plot([], [], '--', color='orange', linewidth=2, zorder=3)[0]
-    link4 = ax.plot([], [], '--', color='cyan', linewidth=2, zorder=3)[0]
-    link5 = ax.plot([], [], '-', color='green', linewidth=2.5, zorder=4)[0]
+    # Links with different colors
+    link1 = ax.plot([], [], '-', color='darkblue', linewidth=3, label='AC', zorder=4)[0]
+    link2 = ax.plot([], [], '-', color='darkred', linewidth=3, label='BD', zorder=4)[0]
+    link3 = ax.plot([], [], '--', color='orange', linewidth=2, label='CE', zorder=3)[0]
+    link4 = ax.plot([], [], '--', color='cyan', linewidth=2, label='DE', zorder=3)[0]
+    link5 = ax.plot([], [], '-', color='green', linewidth=2.5, label='EF', zorder=4)[0]
     
     # Joints
     joint_c = ax.plot([], [], 'ro', markersize=7, zorder=5)[0]
