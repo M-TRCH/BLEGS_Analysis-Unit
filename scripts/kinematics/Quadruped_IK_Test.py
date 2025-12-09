@@ -41,6 +41,15 @@ OFFSET_RATIO_D = 8.0 / 29.0
 GEAR_RATIO = 8.0  # Motor shaft to output shaft gear ratio
 MOTOR_INIT_ANGLE = -90.0  # Initial motor angle (degrees)
 
+# --- Motor Indices for Each Leg ---
+# Motor A (inner) and Motor B (outer) indices
+MOTOR_INDICES = {
+    'FL': {'A': 1, 'B': 2},  # Front Left
+    'FR': {'A': 3, 'B': 4},  # Front Right
+    'RL': {'A': 5, 'B': 6},  # Rear Left
+    'RR': {'A': 7, 'B': 8}   # Rear Right
+}
+
 # --- Leg Motor Positions in Leg Frame (mm) ---
 # For IK calculations, each leg uses local frame with origin at hip center
 # X-axis points down, Y-axis points outward from body
@@ -74,12 +83,12 @@ plot_running = True
 test_running = False
 test_paused = True
 
-# Leg states: [target_angles, target_position, current_phase]
+# Leg states: [target_angles, target_position, current_phase, motor_indices]
 leg_states = {
-    'FR': {'target_angles': [0.0, 0.0], 'target_pos': [0.0, -200.0], 'phase': 0, 'color': 'red'},
-    'FL': {'target_angles': [0.0, 0.0], 'target_pos': [0.0, -200.0], 'phase': 0, 'color': 'blue'},
-    'RR': {'target_angles': [0.0, 0.0], 'target_pos': [0.0, -200.0], 'phase': 0, 'color': 'orange'},
-    'RL': {'target_angles': [0.0, 0.0], 'target_pos': [0.0, -200.0], 'phase': 0, 'color': 'green'}
+    'FR': {'target_angles': [0.0, 0.0], 'target_pos': [0.0, -200.0], 'phase': 0, 'color': 'red', 'motor_A': 3, 'motor_B': 4},
+    'FL': {'target_angles': [0.0, 0.0], 'target_pos': [0.0, -200.0], 'phase': 0, 'color': 'blue', 'motor_A': 1, 'motor_B': 2},
+    'RR': {'target_angles': [0.0, 0.0], 'target_pos': [0.0, -200.0], 'phase': 0, 'color': 'orange', 'motor_A': 7, 'motor_B': 8},
+    'RL': {'target_angles': [0.0, 0.0], 'target_pos': [0.0, -200.0], 'phase': 0, 'color': 'green', 'motor_A': 5, 'motor_B': 6}
 }
 
 # ============================================================================
@@ -382,9 +391,21 @@ def create_leg_subplot(ax, leg_id, leg_name):
     ax.set_ylabel('X (mm)', fontsize=9)
     ax.set_title(f'{leg_id} - {leg_name}', fontsize=10, weight='bold')
     
-    # Draw motor positions
-    ax.plot(P_A[0], P_A[1], 'ko', markersize=8, label='Motor A', zorder=5)
-    ax.plot(P_B[0], P_B[1], 'ko', markersize=8, label='Motor B', zorder=5)
+    # Get motor indices for this leg
+    motor_A_idx = leg_states[leg_id]['motor_A']
+    motor_B_idx = leg_states[leg_id]['motor_B']
+    
+    # Draw motor positions with different colors and labels
+    ax.plot(P_A[0], P_A[1], 'o', color='darkblue', markersize=10, label=f'Motor {motor_A_idx}', zorder=5)
+    ax.plot(P_B[0], P_B[1], 'o', color='darkred', markersize=10, label=f'Motor {motor_B_idx}', zorder=5)
+    
+    # Add motor index labels above motor positions (y offset +25mm) with high zorder
+    ax.text(P_A[0], P_A[1]+25, str(motor_A_idx), fontsize=9, weight='bold', 
+            color='white', ha='center', va='center', zorder=10,
+            bbox=dict(boxstyle='circle', facecolor='darkblue', edgecolor='white', linewidth=1))
+    ax.text(P_B[0], P_B[1]+25, str(motor_B_idx), fontsize=9, weight='bold',
+            color='white', ha='center', va='center', zorder=10,
+            bbox=dict(boxstyle='circle', facecolor='darkred', edgecolor='white', linewidth=1))
     
     color = leg_states[leg_id]['color']
     
@@ -399,8 +420,6 @@ def create_leg_subplot(ax, leg_id, leg_name):
     joint_c = ax.plot([], [], 'ro', markersize=7, zorder=5)[0]
     joint_d = ax.plot([], [], 'bo', markersize=7, zorder=5)[0]
     joint_e = ax.plot([], [], 's', color='purple', markersize=6, zorder=5)[0]
-    foot = ax.plot([], [], '*', color='green', markersize=15, zorder=6)[0]
-    target = ax.plot([], [], 'x', color='red', markersize=12, markeredgewidth=2, zorder=6)[0]
     
     info_text = ax.text(0.02, 0.98, '', transform=ax.transAxes,
                         fontsize=7, verticalalignment='top', family='monospace',
@@ -410,7 +429,7 @@ def create_leg_subplot(ax, leg_id, leg_name):
     
     return {
         'links': [link1, link2, link3, link4, link5],
-        'joints': [joint_c, joint_d, joint_e, foot, target],
+        'joints': [joint_c, joint_d, joint_e],
         'info_text': info_text
     }
 
@@ -434,13 +453,13 @@ def update_leg_plot(leg_id, plot_elements):
         plot_elements['joints'][0].set_data([P_C[0]], [P_C[1]])
         plot_elements['joints'][1].set_data([P_D[0]], [P_D[1]])
         plot_elements['joints'][2].set_data([P_E[0]], [P_E[1]])
-        plot_elements['joints'][3].set_data([P_F[0]], [P_F[1]])
-        plot_elements['joints'][4].set_data([target_x], [target_y])
         
-        # Update info text
+        # Update info text with motor indices
+        motor_A_idx = leg_states[leg_id]['motor_A']
+        motor_B_idx = leg_states[leg_id]['motor_B']
         plot_elements['info_text'].set_text(
-            f'θA: {np.rad2deg(theta_A):+6.1f}°\n'
-            f'θB: {np.rad2deg(theta_B):+6.1f}°\n'
+            f'Motor {motor_A_idx}: {np.rad2deg(theta_A):+6.1f}°\n'
+            f'Motor {motor_B_idx}: {np.rad2deg(theta_B):+6.1f}°\n'
             f'Pos: ({P_F[0]:.0f},{P_F[1]:.0f})'
         )
 
