@@ -158,21 +158,31 @@ $$\tau = M(q)\ddot{q} + G(q)$$
 
 ---
 
-### **Phase 5: Quadruped Scaling (ขยายเป็นสี่ขา)** 🔄 **PLANNED**
+### **Phase 5: Quadruped Scaling (ขยายเป็นสี่ขา)** ✅ **DONE (IK Testing)**
 
 | งาน | สถานะ | เครื่องมือ | หมายเหตุ |
 |-----|-------|----------|----------|
-| **5.1 Motor Indexing System** | 📋 PLANNED | - | กำหนดลำดับมอเตอร์ 1-8 (4 ขา × 2 motors/ขา) |
-| **5.2 Mirror Kinematics** | 📋 PLANNED | Python | สร้าง mirrored trajectory สำหรับขาขวา |
-| **5.3 Gait Pattern Design** | 📋 PLANNED | Python | ออกแบบ Trot gait (diagonal pair coordination) |
-| **5.4 Multi-leg Synchronization** | 📋 PLANNED | Python + Threading | ควบคุม 8 motors พร้อมกัน (phase management) |
-| **5.5 Full Quadruped Testing** | 📋 PLANNED | - | ทดสอบหุ่นยนต์สี่ขาเต็มรูปแบบ |
+| **5.1 Motor Indexing System** | ✅ DONE | Python | FL(1-2), FR(3-4), RL(5-6), RR(7-8) |
+| **5.2 Mirror Kinematics** | ✅ DONE | Python | สร้าง mirrored trajectory สำหรับขาขวา (X-axis) |
+| **5.3 Gait Pattern Design** | ✅ DONE | Python | Trot gait (FR+RL @ 0°, FL+RR @ 180°) |
+| **5.4 IK Quadruped Testing** | ✅ DONE | Python | `Quadruped_IK_Test.py` - ทดสอบ IK 4 ขาสำเร็จ |
+| **5.5 Multi-leg Synchronization** | 📋 PLANNED | Python + Threading | ควบคุม 8 motors พร้อมกัน (hardware) |
+| **5.6 Full Quadruped Hardware Testing** | 📋 PLANNED | - | ทดสอบหุ่นยนต์สี่ขาเต็มรูปแบบบนฮาร์ดแวร์ |
+
+**ผลสำเร็จ Phase 5.4:**
+- ✅ **IK Testing Script:** `scripts/kinematics/Quadruped_IK_Test.py`
+- ✅ **Motor Configuration:** Left legs (FL, RL): A=-42.5mm, B=+42.5mm | Right legs (FR, RR): A=+42.5mm, B=-42.5mm (mirrored)
+- ✅ **Trajectory Mirroring:** ขาขวา reverse X-direction อัตโนมัติ
+- ✅ **Visualization:** Real-time 2×2 subplot แสดงทั้ง 4 ขา พร้อม motor indices และ link colors
+- ✅ **Gait Pattern:** Trot gait (diagonal pair coordination) @ 50Hz, 100 steps/cycle
+- ✅ **FK/IK Integration:** ใช้ motor positions ถูกต้องตามแต่ละขา
 
 **ข้อกำหนดทางเทคนิค:**
-- Motor Indexing: FL(1-2), FR(3-4), RL(5-6), RR(6-8)
+- Motor Indexing: FL(1-2), FR(3-4), RL(5-6), RR(7-8)
 - Trajectory Mirroring: ขาขวา mirror X-axis (px = -px)
 - Phase Management: Trot gait (FL+RR @ 0°, FR+RL @ 180°)
-- Communication: 8× serial ports + threading synchronization
+- Update Rate: 50 Hz simulation, 100 steps per gait cycle
+- Visualization: AC=darkblue, BD=darkred, CE=orange, DE=cyan, EF=green
 
 ---
 
@@ -217,7 +227,7 @@ $$\tau = M(q)\ddot{q} + G(q)$$
 
 ตาม Roadmap ปัจจุบัน **Phase 1-4 เสร็จสมบูรณ์**, พร้อมขยายเป็น Phase 5 (Quadruped Hardware) และ Phase 6 (Sensor Feedback)
 
-### **สำเร็จแล้ว (Completed - Phase 1-4):**
+### **สำเร็จแล้ว (Completed - Phase 1-5.4):**
 1. ✅ **เอกสาร Static Torque Analysis** - เสร็จสมบูรณ์
 2. ✅ **เอกสาร Dynamic Torque Analysis** - เสร็จสมบูรณ์
 3. ✅ **Python Scripts** - Static และ Dynamic Analysis
@@ -230,19 +240,19 @@ $$\tau = M(q)\ddot{q} + G(q)$$
 10. ✅ **Performance Tuning** - ปรับ update rate เป็น 100 Hz, gait cycle 600ms
 11. ✅ **URDF Model** - สร้างโมเดล quadruped 4-leg สำหรับ PyBullet
 12. ✅ **Gait Control Simulation** - Trot gait simulation พร้อม balance control
+13. ✅ **Quadruped IK Testing** - `Quadruped_IK_Test.py` พร้อม real-time visualization (Phase 5.4)
 
 ### **ปัญหาที่แก้ไขแล้ว (Resolved Issues):**
 1. ✅ **Motor Jitter Issue** - แก้ไขสำเร็จ
    - **Solution:** ปรับปรุง MCU firmware (PID tuning, motion planning, control loop timing)
    - **Verification:** `Gait_Control_Binary_Protocol.py` ทำงานได้อย่างราบรื่น (100 Hz @ 60 steps)
 
-### **กำลังดำเนินการ (In Progress - Phase 5):**
-1. 🔄 **Phase 5.1-5.5:** Quadruped Hardware Scaling
-   - Motor indexing system (8 motors)
-   - Mirror kinematics for right-side legs
-   - Trot gait pattern implementation
-   - Multi-leg synchronization
-   - Full quadruped testing
+### **กำลังดำเนินการ (In Progress - Phase 5.5-5.6):**
+1. 🔄 **Phase 5.5-5.6:** Quadruped Hardware Implementation
+   - Multi-leg synchronization (8 motors + threading)
+   - Hardware gait controller expansion
+   - Full quadruped hardware testing
+   - Communication: 8× serial ports coordination
 
 ### **งานถัดไป (Next - Phase 6):**
 1. 📋 **Phase 6: Sensor Feedback System** 
@@ -268,12 +278,14 @@ $$\tau = M(q)\ddot{q} + G(q)$$
    - Gait pattern design (Trot gait - diagonal coordination)
    - Multi-threading สำหรับควบคุม 8 motors พร้อมกัน
 
-### **ต่อไป (Next - Phase 5):**
-1. 🤖 **Quadruped Hardware Controller** - ขยาย `Gait_Control_Binary_Protocol.py` เป็น 4 ขา
-2. 📐 **Hardware Gait Implementation** - Trot gait (FL+RR, FR+RL alternating)
-3. 🎮 **Full Robot Testing** - ทดสอบหุ่นยนต์สี่ขาเต็มรูปแบบ
-4. 📊 **Performance Validation** - วัดความเสถียรและความแม่นยำ
-5. 🔄 **Sim-to-Real Transfer** - นำผลจาก PyBullet simulation ไปใช้กับ hardware
+### **ต่อไป (Next - Phase 5.5-5.6 & Phase 6):**
+1. 🤖 **Quadruped Hardware Controller** - ขยาย `Gait_Control_Binary_Protocol.py` เป็น 4 ขา (8 motors)
+2. 🔄 **Multi-leg Synchronization** - Threading + phase management สำหรับ 8 serial ports
+3. 📐 **Hardware Gait Implementation** - Trot gait บนฮาร์ดแวร์จริง (FL+RR, FR+RL)
+4. 🎮 **Full Robot Testing** - ทดสอบหุ่นยนต์สี่ขาเต็มรูปแบบ
+5. 📊 **Performance Validation** - วัดความเสถียรและความแม่นยำ
+6. 🔄 **Sim-to-Real Transfer** - นำผลจาก `Quadruped_IK_Test.py` simulation ไปใช้กับ hardware
+7. 📡 **Phase 6: Sensor Feedback System** - BNO086 IMU integration (หลังจาก Phase 5 เสร็จ)
 
 ### **ข้อมูลที่ได้รับแล้ว (จาก CAD & Testing):**
 - ✅ มวลของแต่ละ link (L1=24.88g, L2=35.33g, L3=20.56g, L4=25.06g)
@@ -324,7 +336,10 @@ $$\tau = M(q)\ddot{q} + G(q)$$
 | 2025-12-07 | 4.1 | 📋 เพิ่ม Phase 5: Quadruped Scaling (ขยายเป็น 4 ขา, 8 motors) |
 | 2025-12-08 | 5.0 | ✅ **Phase 3 เสร็จสมบูรณ์** - PyBullet gait simulation สำเร็จ |
 | 2025-12-08 | 5.1 | ✅ สร้าง URDF quadruped + Trot gait script พร้อม balance control |
+| 2025-12-09 | 5.2 | ✅ **Phase 5.4 เสร็จสมบูรณ์** - Quadruped IK Testing สำเร็จ |
+| 2025-12-09 | 5.3 | ✅ สร้าง `Quadruped_IK_Test.py` พร้อม real-time visualization (4 legs) |
+| 2025-12-09 | 5.4 | ✅ ทดสอบ mirrored kinematics สำหรับขาขวา (FR, RR) สำเร็จ |
 
 ---
 
-**สถานะโดยรวม:** Phase 1, 2, 3, 4 เสร็จสมบูรณ์ 100% ✅ | Phase 5 กำลังวางแผน 📋 (Quadruped Hardware Expansion)
+**สถานะโดยรวม:** Phase 1, 2, 3, 4, 5.1-5.4 เสร็จสมบูรณ์ ✅ | Phase 5.5-5.6 กำลังวางแผน 📋 (Hardware Multi-leg Synchronization)
