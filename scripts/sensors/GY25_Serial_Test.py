@@ -69,8 +69,15 @@ class GY25Sensor:
                 timeout=self.timeout
             )
             time.sleep(0.5)  # Wait for connection to stabilize
+            
+            # Clear any existing data in buffers
+            self.serial.reset_input_buffer()
+            self.serial.reset_output_buffer()
+            time.sleep(0.2)
+            
             self.connected = True
             print(f"✓ Connected to GY-25 on {self.port} at {self.baudrate} baud")
+            print("  Buffers cleared, sensor ready")
             return True
         except serial.SerialException as e:
             print(f"✗ Failed to connect: {e}")
@@ -80,6 +87,14 @@ class GY25Sensor:
     def disconnect(self):
         """Close serial connection"""
         if self.serial and self.serial.is_open:
+            # Clear buffers before closing
+            try:
+                self.serial.reset_input_buffer()
+                self.serial.reset_output_buffer()
+                time.sleep(0.1)
+            except:
+                pass
+            
             self.serial.close()
             self.connected = False
             print("✓ Disconnected from GY-25")
@@ -89,8 +104,19 @@ class GY25Sensor:
         if not self.connected:
             return False
         try:
-            self.serial.write(self.CMD_AUTO_OUTPUT)
+            # Clear buffer before sending command
+            self.serial.reset_input_buffer()
+            self.serial.reset_output_buffer()
             time.sleep(0.1)
+            
+            # Send auto-output command
+            self.serial.write(self.CMD_AUTO_OUTPUT)
+            time.sleep(0.3)  # Wait longer for mode change
+            
+            # Clear any response/garbage data
+            self.serial.reset_input_buffer()
+            time.sleep(0.1)
+            
             print("✓ Set to auto-output mode")
             return True
         except Exception as e:
@@ -328,9 +354,20 @@ def main():
         return
     
     try:
-        # Set to auto-output mode
+        # Set to auto-output mode (only once at startup)
+        print("\nInitializing sensor...")
         sensor.set_auto_output_mode()
-        time.sleep(0.5)
+        
+        # Wait and verify data is coming
+        print("Waiting for sensor data...")
+        for i in range(5):
+            test_data = sensor.read_angle_data(timeout_sec=0.5)
+            if test_data:
+                print(f"✓ Sensor is sending data (Yaw: {test_data['yaw']:.1f}°, Pitch: {test_data['pitch']:.1f}°, Roll: {test_data['roll']:.1f}°)")
+                break
+            time.sleep(0.2)
+        else:
+            print("⚠ Warning: No data received from sensor. It may need power cycle.")
         
         # Menu
         while True:
