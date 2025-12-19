@@ -43,8 +43,8 @@ class StatusFlags(IntEnum):
     STATUS_ENCODER_ERROR = (1 << 5)
 
 # --- 1. Motor Communication Parameters ---
-MOTOR1_PORT = 'COM9'  # Left motor (Motor A)
-MOTOR2_PORT = 'COM44'   # Right motor (Motor B)
+MOTOR1_PORT = 'COM4'  # Left motor (Motor A)
+MOTOR2_PORT = 'COM9'   # Right motor (Motor B)
 BAUD_RATE = 921600
 SERIAL_TIMEOUT = 0.002  # 2ms timeout for high-speed operation
 
@@ -756,20 +756,25 @@ def main():
                     
                     cmd_time = (time.perf_counter() - loop_start_time) * 1000  # ms
                     
-                    # Update actual angles
-                    if feedback_A and feedback_B:
+                    # Update actual angles (update each motor independently)
+                    if feedback_A:
                         with viz_lock:
-                            actual_angles = [np.deg2rad(feedback_A['position']), 
-                                           np.deg2rad(feedback_B['position'])]
+                            actual_angles[0] = np.deg2rad(feedback_A['position'])
                         
-                        # Calculate and track errors (output shaft angles)
+                        # Calculate and track errors for Motor A (output shaft angles)
                         error_A = abs(np.rad2deg(theta_A - np.deg2rad(feedback_A['position'])))
-                        error_B = abs(np.rad2deg(theta_B - np.deg2rad(feedback_B['position'])))
-                        
                         with error_lock:
                             error_history_A.append(error_A)
-                            error_history_B.append(error_B)
                             max_error_A = max(max_error_A, error_A)
+                    
+                    if feedback_B:
+                        with viz_lock:
+                            actual_angles[1] = np.deg2rad(feedback_B['position'])
+                        
+                        # Calculate and track errors for Motor B (output shaft angles)
+                        error_B = abs(np.rad2deg(theta_B - np.deg2rad(feedback_B['position'])))
+                        with error_lock:
+                            error_history_B.append(error_B)
                             max_error_B = max(max_error_B, error_B)
                     
                     # Check connection
