@@ -124,8 +124,14 @@ DEFAULT_STANCE_HEIGHT = -200.0  # mm (negative = down)
 DEFAULT_STANCE_OFFSET_X = 0.0   # mm
 
 # --- Motion Parameters ---
+# Gait Speed Profiles:
+# SLOW & STABLE:   STEP=30mm, LIFT=15mm, STEPS=30 (600ms cycle, 50mm/s)  ✅ Tested stable
+# FAST:            STEP=45mm, LIFT=15mm, STEPS=25 (500ms cycle, 90mm/s)  ✅ Current (tested)
+# SPOT-LIKE TROT:  STEP=60mm, LIFT=25mm, STEPS=20 (400ms cycle, 150mm/s) ⚠️  Aggressive
+# CRAWL (STABLE):  STEP=20mm, LIFT=10mm, STEPS=40 (800ms cycle, 25mm/s)  🐢 Very stable
+
 GAIT_LIFT_HEIGHT = 15.0    # mm (ยกขาต่ำลง)
-GAIT_STEP_FORWARD = 30.0   # mm (ก้าวสั้นลง)
+GAIT_STEP_FORWARD = 45.0   # mm (ก้าวไกลขึ้นเพื่อความเร็ว)
 
 # ============================================================================
 # CONTROL PARAMETERS
@@ -133,8 +139,19 @@ GAIT_STEP_FORWARD = 30.0   # mm (ก้าวสั้นลง)
 
 CONTROL_MODE = ControlMode.MODE_DIRECT_POSITION  # Control mode for gait control
 UPDATE_RATE = 50  # Hz (20ms per update)
-TRAJECTORY_STEPS = 30  # Number of steps in one gait cycle (เดินเร็วขึ้น)
+
+# Gait Cycle Speed:
+# SLOW & STABLE:   30 steps = 600ms cycle  ✅ Tested stable
+# FAST (current):  25 steps = 500ms cycle  ✅ Tested working
+# SPOT-LIKE TROT:  20 steps = 400ms cycle  ⚠️  Requires testing
+# CRAWL:           40 steps = 800ms cycle  🐢 Very stable
+TRAJECTORY_STEPS = 25  # Number of steps in one gait cycle (500ms - เร็วขึ้น)
+
 GAIT_TYPE = 'trot'  # 'trot', 'walk', 'stand'
+# Gait Types:
+# - 'trot':  Diagonal pairs (FR+RL, FL+RR) - Fast, efficient (like Spot)
+# - 'walk':  Sequential legs (FR→RR→FL→RL) - Slow, very stable, 3 legs always on ground
+# - 'stand': All legs same phase - Static pose testing
 
 # --- Single Motor Mode ---
 SINGLE_MOTOR_MODE = False  # Set to True to enable single motor testing
