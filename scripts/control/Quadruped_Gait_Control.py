@@ -21,9 +21,15 @@ import time
 import threading
 import struct
 import traceback
+import sys
+import os
 from enum import IntEnum
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
+
+# Windows keyboard input
+if sys.platform == 'win32':
+    import msvcrt
 
 # ============================================================================
 # PROTOCOL CONSTANTS (v1.2)
@@ -118,21 +124,26 @@ DEFAULT_STANCE_HEIGHT = -200.0  # mm (negative = down)
 DEFAULT_STANCE_OFFSET_X = 0.0   # mm
 
 # --- Motion Parameters ---
-GAIT_LIFT_HEIGHT = 30.0    # mm
-GAIT_STEP_FORWARD = 60.0   # mm
+GAIT_LIFT_HEIGHT = 15.0    # mm (ยกขาต่ำลง)
+GAIT_STEP_FORWARD = 30.0   # mm (ก้าวสั้นลง)
 
 # ============================================================================
 # CONTROL PARAMETERS
 # ============================================================================
 
-CONTROL_MODE = ControlMode.MODE_DIRECT_POSITION
-UPDATE_RATE = 100  # Hz (10ms per update)
-TRAJECTORY_STEPS = 60  # Number of steps in one gait cycle
+CONTROL_MODE = ControlMode.MODE_DIRECT_POSITION  # Control mode for gait control
+UPDATE_RATE = 50  # Hz (20ms per update)
+TRAJECTORY_STEPS = 30  # Number of steps in one gait cycle (เดินเร็วขึ้น)
 GAIT_TYPE = 'trot'  # 'trot', 'walk', 'stand'
 
+# --- Single Motor Mode ---
+SINGLE_MOTOR_MODE = False  # Set to True to enable single motor testing
+SINGLE_MOTOR_OSCILLATION = 30.0  # Oscillation amplitude in degrees
+SINGLE_MOTOR_PERIOD = 0.6  # Oscillation period in seconds (600ms)
+ 
 # --- Visualization Parameters ---
-ENABLE_VISUALIZATION = True
-PLOT_UPDATE_RATE = 10  # Hz
+ENABLE_VISUALIZATION = False
+PLOT_UPDATE_RATE = 10  # Hz 
 
 # ============================================================================
 # GLOBAL VARIABLES
@@ -151,11 +162,14 @@ gait_running = False
 gait_paused = True
 
 # Leg states
+# Note: Motors start at MOTOR_INIT_ANGLE (-90 deg), IK home position is different!
+# actual_angles initialized to motor init angle (radians)
+MOTOR_INIT_ANGLE_RAD = np.deg2rad(MOTOR_INIT_ANGLE)
 leg_states = {
-    'FR': {'target_angles': [0.0, 0.0], 'actual_angles': [0.0, 0.0], 'target_pos': [0.0, -200.0], 'phase': 0, 'color': 'red'},
-    'FL': {'target_angles': [0.0, 0.0], 'actual_angles': [0.0, 0.0], 'target_pos': [0.0, -200.0], 'phase': 0, 'color': 'blue'},
-    'RR': {'target_angles': [0.0, 0.0], 'actual_angles': [0.0, 0.0], 'target_pos': [0.0, -200.0], 'phase': 0, 'color': 'orange'},
-    'RL': {'target_angles': [0.0, 0.0], 'actual_angles': [0.0, 0.0], 'target_pos': [0.0, -200.0], 'phase': 0, 'color': 'green'}
+    'FR': {'target_angles': [MOTOR_INIT_ANGLE_RAD, MOTOR_INIT_ANGLE_RAD], 'actual_angles': [MOTOR_INIT_ANGLE_RAD, MOTOR_INIT_ANGLE_RAD], 'target_pos': [0.0, -200.0], 'phase': 0, 'color': 'red'},
+    'FL': {'target_angles': [MOTOR_INIT_ANGLE_RAD, MOTOR_INIT_ANGLE_RAD], 'actual_angles': [MOTOR_INIT_ANGLE_RAD, MOTOR_INIT_ANGLE_RAD], 'target_pos': [0.0, -200.0], 'phase': 0, 'color': 'blue'},
+    'RR': {'target_angles': [MOTOR_INIT_ANGLE_RAD, MOTOR_INIT_ANGLE_RAD], 'actual_angles': [MOTOR_INIT_ANGLE_RAD, MOTOR_INIT_ANGLE_RAD], 'target_pos': [0.0, -200.0], 'phase': 0, 'color': 'orange'},
+    'RL': {'target_angles': [MOTOR_INIT_ANGLE_RAD, MOTOR_INIT_ANGLE_RAD], 'actual_angles': [MOTOR_INIT_ANGLE_RAD, MOTOR_INIT_ANGLE_RAD], 'target_pos': [0.0, -200.0], 'phase': 0, 'color': 'green'}
 }
 
 # Motor registry (populated during discovery)
@@ -164,6 +178,10 @@ leg_motors = {}      # {leg_id: {'A': motor_controller, 'B': motor_controller}}
 
 # Error tracking
 error_stats = {}
+
+# Single motor mode state
+single_motor_controller = None
+single_motor_start_time = None
 
 # ============================================================================
 # PROTOCOL FUNCTIONS
@@ -335,8 +353,24 @@ class BinaryMotorController:
                 # Build and send packet
                 packet = build_packet(PacketType.PKT_CMD_SET_GOAL, payload)
                 self.serial.write(packet)
+                self.serial.flush()  # Ensure data is sent immediately
                 self.stats_tx_count += 1
                 self.current_setpoint = angle_deg
+                
+                # Try to read feedback response (non-blocking)
+                # Wait a short time for response
+                time.sleep(0.001)  # 1ms wait for response
+                if self.serial.in_waiting >= 12:  # Minimum packet size
+                    result = self._read_packet()
+                    if result:
+                        pkt_type, payload_data = result
+                        if pkt_type == PacketType.PKT_FB_STATUS and len(payload_data) >= 8:
+                            position_raw = struct.unpack('<i', payload_data[1:5])[0]
+                            current_raw = struct.unpack('<h', payload_data[5:7])[0]
+                            status_flags = payload_data[7]
+                            self.current_position = (position_raw / 100.0) / GEAR_RATIO
+                            self.current_current = current_raw
+                            self.current_flags = status_flags
             
             return True
             
@@ -369,8 +403,23 @@ class BinaryMotorController:
                 
                 packet = build_packet(PacketType.PKT_CMD_SET_GOAL, payload)
                 self.serial.write(packet)
+                self.serial.flush()  # Ensure data is sent immediately
                 self.stats_tx_count += 1
                 self.current_setpoint = angle_deg
+                
+                # Try to read feedback response (non-blocking)
+                time.sleep(0.001)  # 1ms wait for response
+                if self.serial.in_waiting >= 12:
+                    result = self._read_packet()
+                    if result:
+                        pkt_type, payload_data = result
+                        if pkt_type == PacketType.PKT_FB_STATUS and len(payload_data) >= 8:
+                            position_raw = struct.unpack('<i', payload_data[1:5])[0]
+                            current_raw = struct.unpack('<h', payload_data[5:7])[0]
+                            status_flags = payload_data[7]
+                            self.current_position = (position_raw / 100.0) / GEAR_RATIO
+                            self.current_current = current_raw
+                            self.current_flags = status_flags
             
             return True
             
@@ -758,7 +807,7 @@ def calculate_fk_positions(theta_A, theta_B, P_A, P_B):
 # TRAJECTORY GENERATION
 # ============================================================================
 
-def generate_elliptical_trajectory(num_steps=60, lift_height=30, step_forward=60, mirror_x=False):
+def generate_elliptical_trajectory(num_steps=60, lift_height=30.0, step_forward=60.0, mirror_x=False):
     """
     Generate elliptical walking trajectory for one leg
     
@@ -843,6 +892,375 @@ def emergency_stop_all():
     print("\n⚠️  EMERGENCY STOP - ALL MOTORS!")
     for motor_id, controller in motor_registry.items():
         controller.send_emergency_stop()
+
+# ============================================================================
+# SINGLE MOTOR CONTROL
+# ============================================================================
+
+def check_keyboard_input():
+    """
+    Check for keyboard input (non-blocking)
+    Returns the key pressed or None
+    """
+    if sys.platform == 'win32':
+        if msvcrt.kbhit():
+            key = msvcrt.getch()
+            # Handle special keys
+            if key == b'\xe0' or key == b'\x00':
+                msvcrt.getch()  # Consume the second byte
+                return None
+            return key.decode('utf-8', errors='ignore').lower()
+    return None
+
+
+def run_single_motor_mode(controller):
+    """
+    Run single motor oscillation test
+    
+    Args:
+        controller: BinaryMotorController instance
+    """
+    global gait_running, gait_paused, plot_running
+    
+    print("\n" + "="*70)
+    print("  🔧 SINGLE MOTOR TEST MODE")
+    print("="*70)
+    print(f"  Motor ID: {controller.motor_id}")
+    print(f"  Oscillation: ±{SINGLE_MOTOR_OSCILLATION}°")
+    print(f"  Period: {SINGLE_MOTOR_PERIOD}s")
+    print(f"  Control Mode: {'S-Curve' if CONTROL_MODE == ControlMode.MODE_SCURVE_PROFILE else 'Direct'}")
+    print("="*70)
+    
+    # Start motor
+    print("\n🚀 Starting motor...")
+    if not controller.start_motor():
+        print("❌ Failed to start motor!")
+        return
+    
+    # Switch to fast timeout
+    controller.set_timeout(FAST_TIMEOUT)
+    
+    # Get initial position
+    initial_pos = controller.current_position
+    print(f"  Initial position: {initial_pos:.2f}°")
+    
+    # Use initial position as center (relative movement)
+    center_pos = initial_pos
+    print(f"\n🏠 Using current position as center ({center_pos:.2f}°)")
+    print(f"  Oscillation range: {center_pos - SINGLE_MOTOR_OSCILLATION:.1f}° to {center_pos + SINGLE_MOTOR_OSCILLATION:.1f}°")
+    
+    # Small delay for stabilization
+    time.sleep(0.5)
+    
+    print("\n⏸️  Single motor control ready (PAUSED)")
+    print("  Press [SPACE] to start/pause oscillation")
+    print("  Press [E] for emergency stop")
+    print("  Press [Q] to quit")
+    print("="*70)
+    
+    gait_paused = True
+    start_time = time.time()
+    last_status_time = 0
+    running = True
+    
+    try:
+        while running:
+            # Check keyboard input
+            key = check_keyboard_input()
+            if key:
+                if key == ' ':
+                    # Before resuming, get current motor position via PING
+                    with control_lock:
+                        was_paused = gait_paused
+                    
+                    if was_paused:
+                        # About to resume - query current position
+                        ping_result = controller.send_ping()
+                        if ping_result:
+                            center_pos = ping_result['position']
+                            print(f"\n▶️  Resuming from position: {center_pos:.2f}°")
+                            print(f"  New oscillation range: {center_pos - SINGLE_MOTOR_OSCILLATION:.1f}° to {center_pos + SINGLE_MOTOR_OSCILLATION:.1f}°")
+                        else:
+                            print("\n⚠️  Failed to get current position, using last known")
+                        start_time = time.time()  # Reset start time for smooth oscillation
+                    
+                    toggle_gait_control()
+                elif key == 'e':
+                    controller.send_emergency_stop()
+                    with control_lock:
+                        gait_paused = True
+                    print("\n⚠️  Emergency stop activated!")
+                elif key == 'q':
+                    print("\n⏹️  Quit requested...")
+                    running = False
+                    continue
+            
+            # Check if paused
+            with control_lock:
+                is_paused = gait_paused
+            
+            if is_paused:
+                time.sleep(0.01)  # Short sleep when paused
+                continue
+            
+            loop_start = time.perf_counter()
+            
+            # Calculate oscillation angle
+            elapsed = time.time() - start_time
+            phase = (elapsed % SINGLE_MOTOR_PERIOD) / SINGLE_MOTOR_PERIOD
+            target_angle = center_pos + SINGLE_MOTOR_OSCILLATION * np.sin(2 * np.pi * phase)
+            
+            # Send command
+            if CONTROL_MODE == ControlMode.MODE_SCURVE_PROFILE:
+                duration_ms = int(1000 / UPDATE_RATE)
+                controller.set_position_scurve(target_angle, duration_ms)
+            else:
+                controller.set_position_direct(target_angle)
+            
+            # Read feedback
+            feedback = controller.read_feedback()
+            
+            # Print status periodically (every second)
+            current_time = time.time()
+            if current_time - last_status_time >= 1.0:
+                last_status_time = current_time
+                cycle = int(elapsed / SINGLE_MOTOR_PERIOD)
+                current_pos = controller.current_position
+                error = target_angle - current_pos
+                print(f"  🔄 Cycle {cycle}: Target={target_angle:+6.1f}° | "
+                      f"Actual={current_pos:+6.1f}° | Error={error:+5.1f}°")
+            
+            # Timing control
+            elapsed_loop = time.perf_counter() - loop_start
+            sleep_time = max(0, (1.0 / UPDATE_RATE) - elapsed_loop)
+            if sleep_time > 0:
+                time.sleep(sleep_time)
+    
+    except KeyboardInterrupt:
+        print("\n\n⏹️  Single motor test stopped by user")
+    
+    finally:
+        # Return to init position
+        print("\n🏠 Returning to init position (-90°)...")
+        controller.set_position_scurve(MOTOR_INIT_ANGLE, 2000)
+        time.sleep(2.5)
+        
+        # Print statistics
+        stats = controller.get_stats()
+        print(f"\n📊 Communication Statistics:")
+        print(f"    Motor {stats['motor_id']}: TX={stats['tx']}, RX={stats['rx']}, "
+              f"Errors={stats['errors']}, Success={stats['success_rate']:.1f}%")
+        
+        # Disconnect
+        print("\n🔌 Disconnecting motor...")
+        controller.disconnect()
+        
+        print("\n✅ Single motor test completed")
+        print("="*70)
+
+
+def run_single_motor_with_visualization(controller):
+    """
+    Run single motor test with simple visualization
+    
+    Args:
+        controller: BinaryMotorController instance
+    """
+    global gait_running, gait_paused
+    
+    print("\n" + "="*70)
+    print("  🔧 SINGLE MOTOR TEST MODE (with Visualization)")
+    print("="*70)
+    print(f"  Motor ID: {controller.motor_id}")
+    print(f"  Oscillation: ±{SINGLE_MOTOR_OSCILLATION}°")
+    print(f"  Period: {SINGLE_MOTOR_PERIOD}s")
+    print("="*70)
+    
+    # Start motor
+    print("\n🚀 Starting motor...")
+    if not controller.start_motor():
+        print("❌ Failed to start motor!")
+        return
+    
+    controller.set_timeout(FAST_TIMEOUT)
+    initial_pos = controller.current_position
+    print(f"  Initial position: {initial_pos:.2f}°")
+    
+    # Use initial position as center (relative movement)
+    center_pos = initial_pos
+    print(f"\n🏠 Using current position as center ({center_pos:.2f}°)")
+    print(f"  Oscillation range: {center_pos - SINGLE_MOTOR_OSCILLATION:.1f}° to {center_pos + SINGLE_MOTOR_OSCILLATION:.1f}°")
+    
+    # Small delay for stabilization
+    time.sleep(0.5)
+    
+    # Create visualization
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 8))
+    fig.suptitle(f'Single Motor Test - Motor ID {controller.motor_id}', 
+                 fontsize=14, weight='bold')
+    
+    # Position plot - use center_pos as reference
+    ax1.set_xlim(0, 10)
+    ax1.set_ylim(center_pos - SINGLE_MOTOR_OSCILLATION * 1.5, 
+                 center_pos + SINGLE_MOTOR_OSCILLATION * 1.5)
+    ax1.set_xlabel('Time (s)')
+    ax1.set_ylabel('Position (°)')
+    ax1.set_title('Motor Position')
+    ax1.grid(True, alpha=0.3)
+    
+    target_line, = ax1.plot([], [], 'r-', label='Target', linewidth=2)
+    actual_line, = ax1.plot([], [], 'b-', label='Actual', linewidth=2)
+    ax1.legend(loc='upper right')
+    
+    # Error plot
+    ax2.set_xlim(0, 10)
+    ax2.set_ylim(-10, 10)
+    ax2.set_xlabel('Time (s)')
+    ax2.set_ylabel('Error (°)')
+    ax2.set_title('Position Error')
+    ax2.grid(True, alpha=0.3)
+    ax2.axhline(y=0, color='k', linestyle='--', alpha=0.5)
+    
+    error_line, = ax2.plot([], [], 'g-', linewidth=2)
+    
+    # Data buffers
+    time_data = []
+    target_data = []
+    actual_data = []
+    error_data = []
+    
+    info_text = ax1.text(0.02, 0.98, '', transform=ax1.transAxes,
+                         fontsize=10, verticalalignment='top', family='monospace',
+                         bbox=dict(boxstyle='round', facecolor='lightyellow', alpha=0.9))
+    
+    fig.text(0.5, 0.02, 'Controls: [SPACE] Start/Stop  |  [E] Emergency Stop', 
+             ha='center', fontsize=10, family='monospace',
+             bbox=dict(boxstyle='round', facecolor='lightblue', alpha=0.8))
+    
+    gait_paused = True
+    start_time = None
+    
+    def on_key_press(event):
+        nonlocal start_time, center_pos
+        if event.key == ' ':
+            # Before resuming, get current motor position via PING
+            if gait_paused:
+                # About to resume - query current position
+                ping_result = controller.send_ping()
+                if ping_result:
+                    center_pos = ping_result['position']
+                    print(f"\n▶️  Resuming from position: {center_pos:.2f}°")
+                    print(f"  New oscillation range: {center_pos - SINGLE_MOTOR_OSCILLATION:.1f}° to {center_pos + SINGLE_MOTOR_OSCILLATION:.1f}°")
+                    # Update Y-axis limits
+                    ax1.set_ylim(center_pos - SINGLE_MOTOR_OSCILLATION * 1.5, 
+                                 center_pos + SINGLE_MOTOR_OSCILLATION * 1.5)
+                else:
+                    print("\n⚠️  Failed to get current position, using last known")
+            
+            toggle_gait_control()
+            if not gait_paused:
+                start_time = time.time()
+                time_data.clear()
+                target_data.clear()
+                actual_data.clear()
+                error_data.clear()
+        elif event.key == 'e' or event.key == 'E':
+            controller.send_emergency_stop()
+    
+    fig.canvas.mpl_connect('key_press_event', on_key_press)
+    
+    def update_plot(frame):
+        nonlocal start_time
+        
+        with control_lock:
+            is_paused = gait_paused
+        
+        if is_paused or start_time is None:
+            info_text.set_text('Status: PAUSED\nPress SPACE to start')
+            return target_line, actual_line, error_line, info_text
+        
+        elapsed = time.time() - start_time
+        phase = (elapsed % SINGLE_MOTOR_PERIOD) / SINGLE_MOTOR_PERIOD
+        target_angle = center_pos + SINGLE_MOTOR_OSCILLATION * np.sin(2 * np.pi * phase)
+        
+        # Send command
+        if CONTROL_MODE == ControlMode.MODE_SCURVE_PROFILE:
+            controller.set_position_scurve(target_angle, int(1000 / UPDATE_RATE))
+        else:
+            controller.set_position_direct(target_angle)
+        
+        # Read feedback
+        controller.read_feedback()
+        current_pos = controller.current_position
+        error = target_angle - current_pos
+        
+        # Update data
+        time_data.append(elapsed)
+        target_data.append(target_angle)
+        actual_data.append(current_pos)
+        error_data.append(error)
+        
+        # Limit data points
+        max_points = int(10 * UPDATE_RATE)
+        if len(time_data) > max_points:
+            time_data.pop(0)
+            target_data.pop(0)
+            actual_data.pop(0)
+            error_data.pop(0)
+        
+        # Update plot limits
+        if time_data:
+            ax1.set_xlim(max(0, elapsed - 10), elapsed + 0.5)
+            ax2.set_xlim(max(0, elapsed - 10), elapsed + 0.5)
+        
+        target_line.set_data(time_data, target_data)
+        actual_line.set_data(time_data, actual_data)
+        error_line.set_data(time_data, error_data)
+        
+        stats = controller.get_stats()
+        info_text.set_text(
+            f'Status: RUNNING\n'
+            f'Target: {target_angle:+6.1f}°\n'
+            f'Actual: {current_pos:+6.1f}°\n'
+            f'Error:  {error:+5.1f}°\n'
+            f'TX: {stats["tx"]}  RX: {stats["rx"]}  Err: {stats["errors"]}'
+        )
+        
+        return target_line, actual_line, error_line, info_text
+    
+    print("\n⏸️  Single motor control ready (PAUSED)")
+    print("  Press [SPACE] in window to start")
+    print("  Press [E] for emergency stop")
+    print("  Close window to exit")
+    print("="*70)
+    
+    anim = FuncAnimation(fig, update_plot, interval=int(1000/UPDATE_RATE),
+                        blit=True, cache_frame_data=False)
+    
+    plt.tight_layout(rect=[0, 0.05, 1, 0.95])
+    
+    try:
+        plt.show()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        # Return to init position
+        print("\n🏠 Returning to init position (-90°)...")
+        controller.set_position_scurve(MOTOR_INIT_ANGLE, 2000)
+        time.sleep(2.5)
+        
+        # Print statistics
+        stats = controller.get_stats()
+        print(f"\n📊 Communication Statistics:")
+        print(f"    Motor {stats['motor_id']}: TX={stats['tx']}, RX={stats['rx']}, "
+              f"Errors={stats['errors']}, Success={stats['success_rate']:.1f}%")
+        
+        # Disconnect
+        print("\n🔌 Disconnecting motor...")
+        controller.disconnect()
+        
+        print("\n✅ Single motor test completed")
+        print("="*70)
 
 # ============================================================================
 # VISUALIZATION
@@ -1021,14 +1439,30 @@ def main():
     print("="*70)
     print("  BLEGS Quadruped Gait Control - Binary Protocol v1.2")
     print("="*70)
-    print(f"  Number of Legs: 4 (FR, FL, RR, RL)")
-    print(f"  Total Motors: 8")
+    
+    if SINGLE_MOTOR_MODE:
+        print("  ⚙️  MODE: SINGLE MOTOR TEST")
+    else:
+        print(f"  Number of Legs: 4 (FR, FL, RR, RL)")
+        print(f"  Total Motors: 8")
+    
     print(f"  Protocol: Binary v1.2")
     print(f"  Baud Rate: {BAUD_RATE}")
-    print(f"  Gait Type: {GAIT_TYPE.upper()}")
+    
+    if not SINGLE_MOTOR_MODE:
+        print(f"  Gait Type: {GAIT_TYPE.upper()}")
+    
     print(f"  Control Mode: {'S-Curve' if CONTROL_MODE == ControlMode.MODE_SCURVE_PROFILE else 'Direct'}")
     print(f"  Update Rate: {UPDATE_RATE} Hz")
     print(f"  Gear Ratio: {GEAR_RATIO}:1")
+    
+    if not SINGLE_MOTOR_MODE:
+        print(f"  Motor Init Angle: {MOTOR_INIT_ANGLE}° (robot)")
+        print(f"  Home Position: ({DEFAULT_STANCE_OFFSET_X}, {DEFAULT_STANCE_HEIGHT}) mm")
+    else:
+        print(f"  Oscillation: ±{SINGLE_MOTOR_OSCILLATION}°")
+        print(f"  Period: {SINGLE_MOTOR_PERIOD}s")
+    
     print(f"  Visualization: {'Enabled' if ENABLE_VISUALIZATION else 'Disabled'}")
     print("="*70)
     
@@ -1038,6 +1472,21 @@ def main():
     if not discovered_motors:
         print("\n❌ No motors discovered. Please check connections.")
         print("="*70)
+        return
+    
+    # --- Single Motor Mode ---
+    if SINGLE_MOTOR_MODE:
+        # Use first discovered motor
+        motor_id = list(discovered_motors.keys())[0]
+        controller = discovered_motors[motor_id]
+        
+        print(f"\n✅ Using Motor ID {motor_id} for single motor test")
+        
+        if ENABLE_VISUALIZATION:
+            run_single_motor_with_visualization(controller)
+        else:
+            run_single_motor_mode(controller)
+        
         return
     
     # --- Step 2: Motor Registration ---
@@ -1083,6 +1532,7 @@ def main():
     
     # --- Step 6: Initialize Home Position ---
     print(f"\n🏠 Moving to home position...")
+    print(f"  Note: Motors start at {MOTOR_INIT_ANGLE}° (robot angle)")
     prev_solutions = {}
     home_angles_all = {}
     
@@ -1095,38 +1545,74 @@ def main():
             prev_solutions[leg_id] = home_angles
             home_angles_all[leg_id] = home_angles
             
+            # Calculate movement from init angle
+            init_angle_A = MOTOR_INIT_ANGLE
+            init_angle_B = MOTOR_INIT_ANGLE
+            target_angle_A = np.rad2deg(home_angles[0])
+            target_angle_B = np.rad2deg(home_angles[1])
+            
+            delta_A = target_angle_A - init_angle_A
+            delta_B = target_angle_B - init_angle_B
+            
             with viz_lock:
                 leg_states[leg_id]['target_angles'] = home_angles.tolist()
                 leg_states[leg_id]['target_pos'] = home_pos.tolist()
             
-            # Send S-Curve command for smooth home movement
+            # Send S-Curve command for smooth home movement (3 seconds for safety)
             motor_a = leg_motors[leg_id]['A']
             motor_b = leg_motors[leg_id]['B']
-            motor_a.set_position_scurve(np.rad2deg(home_angles[0]), 2000)
-            motor_b.set_position_scurve(np.rad2deg(home_angles[1]), 2000)
+            motor_a.set_position_scurve(target_angle_A, 3000)
+            motor_b.set_position_scurve(target_angle_B, 3000)
             
-            print(f"    {leg_id}: θA={np.rad2deg(home_angles[0]):+.1f}°, θB={np.rad2deg(home_angles[1]):+.1f}°")
+            print(f"    {leg_id}: θA={target_angle_A:+.1f}° (Δ{delta_A:+.1f}°), θB={target_angle_B:+.1f}° (Δ{delta_B:+.1f}°)")
+        else:
+            print(f"    {leg_id}: IK FAILED for home position!")
     
-    time.sleep(2.5)  # Wait for home position
+    print(f"\n  ⏳ Moving to home position (3 seconds)...")
+    time.sleep(3.5)  # Wait for home position (3s movement + margin)
     
     # --- Step 7: Main Gait Loop ---
     print(f"\n⏸️  Gait control ready (PAUSED)")
-    print("  Press [SPACE] in visualization window to start")
+    if ENABLE_VISUALIZATION:
+        print("  Press [SPACE] in visualization window to start")
+    else:
+        print("  Press [SPACE] to start/pause")
     print("  Press [E] for emergency stop")
-    print("  Press Ctrl+C to exit")
+    if not ENABLE_VISUALIZATION:
+        print("  Press [Q] to quit")
+    else:
+        print("  Press Ctrl+C to exit")
     print("="*70)
     
     cycle_count = 0
     frame = 0
+    last_status_time = 0
+    running = True
     
     try:
-        while plot_running:
+        while running and plot_running:
+            # Check keyboard input (for non-visualization mode)
+            if not ENABLE_VISUALIZATION:
+                key = check_keyboard_input()
+                if key:
+                    if key == ' ':
+                        toggle_gait_control()
+                    elif key == 'e':
+                        emergency_stop_all()
+                        with control_lock:
+                            gait_paused = True
+                        print("\n⚠️  Emergency stop activated!")
+                    elif key == 'q':
+                        print("\n⏹️  Quit requested...")
+                        running = False
+                        continue
+            
             # Check if paused
             with control_lock:
                 is_paused = gait_paused
             
             if is_paused:
-                time.sleep(0.05)
+                time.sleep(0.01)  # Short sleep when paused
                 continue
             
             loop_start = time.perf_counter()
@@ -1210,11 +1696,18 @@ def main():
             # Update frame counter
             frame = (frame + 1) % TRAJECTORY_STEPS
             
-            # Print status every cycle
+            # Print status every cycle (or periodically in non-viz mode)
             if frame == 0:
                 cycle_count += 1
                 if cycle_count % 5 == 0:
                     print(f"  🔄 Gait Cycle #{cycle_count}")
+            
+            # Print periodic status in terminal mode
+            if not ENABLE_VISUALIZATION:
+                current_time = time.time()
+                if current_time - last_status_time >= 2.0:  # Every 2 seconds
+                    last_status_time = current_time
+                    print(f"  🔄 Gait running - Cycle #{cycle_count}, Frame {frame}/{TRAJECTORY_STEPS}")
             
             # Timing control
             elapsed = time.perf_counter() - loop_start
@@ -1233,16 +1726,15 @@ def main():
         # Stop visualization
         plot_running = False
         
-        # Return to home position
-        print("\n🏠 Returning to home position...")
+        # Return to init position (-90°)
+        print("\n🏠 Returning to init position (-90°)...")
         try:
             for leg_id in leg_motors.keys():
-                if leg_id in home_angles_all:
-                    motor_a = leg_motors[leg_id]['A']
-                    motor_b = leg_motors[leg_id]['B']
-                    motor_a.set_position_scurve(np.rad2deg(home_angles_all[leg_id][0]), 2000)
-                    motor_b.set_position_scurve(np.rad2deg(home_angles_all[leg_id][1]), 2000)
-            time.sleep(2.5)
+                motor_a = leg_motors[leg_id]['A']
+                motor_b = leg_motors[leg_id]['B']
+                motor_a.set_position_scurve(MOTOR_INIT_ANGLE, 3000)
+                motor_b.set_position_scurve(MOTOR_INIT_ANGLE, 3000)
+            time.sleep(3.5)
         except:
             pass
         

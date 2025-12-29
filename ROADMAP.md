@@ -3,7 +3,7 @@
 **โปรเจ็กต์:** การวิเคราะห์จลนศาสตร์ (Kinematics) และพลศาสตร์ (Dynamics) ของกลไกขาหุ่นยนต์ 5-Bar Linkage แบบมี Offset เพื่อใช้ในการจำลอง (Simulation) และการควบคุม (Control) ต่อไป
 
 **เจ้าของโปรเจ็กต์:** นายธีรโชติ เมืองจำนงค์  
-**อัพเดทล่าสุด:** 8 ธันวาคม 2025
+**อัพเดทล่าสุด:** 29 ธันวาคม 2025
 
 ---
 
@@ -158,7 +158,7 @@ $$\tau = M(q)\ddot{q} + G(q)$$
 
 ---
 
-### **Phase 5: Quadruped Scaling (ขยายเป็นสี่ขา)** ✅ **DONE (IK Testing)**
+### **Phase 5: Quadruped Scaling (ขยายเป็นสี่ขา)** ✅ **DONE (100%)**
 
 | งาน | สถานะ | เครื่องมือ | หมายเหตุ |
 |-----|-------|----------|----------|
@@ -166,8 +166,15 @@ $$\tau = M(q)\ddot{q} + G(q)$$
 | **5.2 Mirror Kinematics** | ✅ DONE | Python | สร้าง mirrored trajectory สำหรับขาขวา (X-axis) |
 | **5.3 Gait Pattern Design** | ✅ DONE | Python | Trot gait (FR+RL @ 0°, FL+RR @ 180°) |
 | **5.4 IK Quadruped Testing** | ✅ DONE | Python | `Quadruped_IK_Test.py` - ทดสอบ IK 4 ขาสำเร็จ |
-| **5.5 Multi-leg Synchronization** | 📋 PLANNED | Python + Threading | ควบคุม 8 motors พร้อมกัน (hardware) |
-| **5.6 Full Quadruped Hardware Testing** | 📋 PLANNED | - | ทดสอบหุ่นยนต์สี่ขาเต็มรูปแบบบนฮาร์ดแวร์ |
+| **5.5 Multi-leg Synchronization** | ✅ DONE | Python + Threading | ควบคุม 8 motors พร้อมกัน (hardware) |
+| **5.6 Full Quadruped Hardware Testing** | ✅ DONE | `Quadruped_Gait_Control.py` | ทดสอบหุ่นยนต์สี่ขาเต็มรูปแบบสำเร็จ |
+
+**🎉 ผลการทดสอบการเดิน (29 ธ.ค. 2025):**
+- ✅ **สถานะ:** หุ่นยนต์สามารถเดินได้จริงบนฮาร์ดแวร์
+- 🦾 **ท่าทาง:** Compromised posture (ท่าประนีประนอม)
+- 🐢 **ความเร็ว:** เดินได้ช้าๆ แต่มั่นคง
+- 📊 **Gait Parameters:** Step=30mm, Lift=15mm, Cycle=600ms (30 steps @ 50Hz)
+- 🔧 **Control Script:** `scripts/control/Quadruped_Gait_Control.py` (Binary Protocol v1.2)
 
 **ผลสำเร็จ Phase 5.4:**
 - ✅ **IK Testing Script:** `scripts/kinematics/Quadruped_IK_Test.py`
@@ -227,32 +234,36 @@ $$\tau = M(q)\ddot{q} + G(q)$$
 
 ตาม Roadmap ปัจจุบัน **Phase 1-4 เสร็จสมบูรณ์**, พร้อมขยายเป็น Phase 5 (Quadruped Hardware) และ Phase 6 (Sensor Feedback)
 
-### **สำเร็จแล้ว (Completed - Phase 1-5.4):**
+### **สำเร็จแล้ว (Completed - Phase 1-5):**
 1. ✅ **เอกสาร Static Torque Analysis** - เสร็จสมบูรณ์
 2. ✅ **เอกสาร Dynamic Torque Analysis** - เสร็จสมบูรณ์
 3. ✅ **Python Scripts** - Static และ Dynamic Analysis
 4. ✅ **กราฟเปรียบเทียบ** - Torque, Velocity, Acceleration
 5. ✅ **การเลือกมอเตอร์** - ยืนยัน 5 N·m เหมาะสม (SF ≥ 2.0)
-6. ✅ **Binary Protocol Implementation** - Binary Protocol v1.1 พร้อม CRC-16
-7. ✅ **Gait Control Script (Hardware)** - `Gait_Control_Binary_Protocol.py` สำหรับควบคุมการเดิน
+6. ✅ **Binary Protocol Implementation** - Binary Protocol v1.2 พร้อม CRC-16
+7. ✅ **Gait Control Script (Hardware)** - `Quadruped_Gait_Control.py` สำหรับควบคุมการเดิน
 8. ✅ **Single Leg Testing** - ทดสอบ 341+ gait cycles, communication success rate 96-99%
 9. ✅ **Motor Control Optimization** - แก้ไข motor jitter issue สำเร็จ (ยืนยันผ่าน testing)
-10. ✅ **Performance Tuning** - ปรับ update rate เป็น 100 Hz, gait cycle 600ms
+10. ✅ **Performance Tuning** - ปรับ update rate เป็น 50 Hz, gait cycle 600ms
 11. ✅ **URDF Model** - สร้างโมเดล quadruped 4-leg สำหรับ PyBullet
 12. ✅ **Gait Control Simulation** - Trot gait simulation พร้อม balance control
 13. ✅ **Quadruped IK Testing** - `Quadruped_IK_Test.py` พร้อม real-time visualization (Phase 5.4)
+14. ✅ **Full Quadruped Hardware Walking** - หุ่นยนต์เดินได้จริง (Phase 5.6) 🎉
+    - Multi-leg synchronization: 8 motors, 4 COM ports
+    - Trot gait on hardware: เดินช้าๆ และมั่นคง
+    - Compromised posture: ท่าประนีประนอมที่ทำงานได้จริง
 
 ### **ปัญหาที่แก้ไขแล้ว (Resolved Issues):**
 1. ✅ **Motor Jitter Issue** - แก้ไขสำเร็จ
    - **Solution:** ปรับปรุง MCU firmware (PID tuning, motion planning, control loop timing)
    - **Verification:** `Gait_Control_Binary_Protocol.py` ทำงานได้อย่างราบรื่น (100 Hz @ 60 steps)
 
-### **กำลังดำเนินการ (In Progress - Phase 5.5-5.6):**
-1. 🔄 **Phase 5.5-5.6:** Quadruped Hardware Implementation
-   - Multi-leg synchronization (8 motors + threading)
-   - Hardware gait controller expansion
-   - Full quadruped hardware testing
-   - Communication: 8× serial ports coordination
+### **เสร็จสิ้นล่าสุด (Just Completed - Phase 5.5-5.6):**
+1. ✅ **Phase 5.5-5.6:** Quadruped Hardware Implementation - **สำเร็จแล้ว!**
+   - Multi-leg synchronization (8 motors + 4 COM ports)
+   - Hardware gait controller: `Quadruped_Gait_Control.py`
+   - Full quadruped hardware testing: **หุ่นยนต์เดินได้!** 🎉
+   - Gait style: Trot gait (ท่าประนีประนอม, เดินช้าแต่มั่นคง)
 
 ### **งานถัดไป (Next - Phase 6):**
 1. 📋 **Phase 6: Sensor Feedback System** 
@@ -339,7 +350,12 @@ $$\tau = M(q)\ddot{q} + G(q)$$
 | 2025-12-09 | 5.2 | ✅ **Phase 5.4 เสร็จสมบูรณ์** - Quadruped IK Testing สำเร็จ |
 | 2025-12-09 | 5.3 | ✅ สร้าง `Quadruped_IK_Test.py` พร้อม real-time visualization (4 legs) |
 | 2025-12-09 | 5.4 | ✅ ทดสอบ mirrored kinematics สำหรับขาขวา (FR, RR) สำเร็จ |
+| 2025-12-26 | 6.0 | ✅ สร้าง `Quadruped_Gait_Control.py` (Binary Protocol v1.2) สำหรับ 4 ขา |
+| 2025-12-29 | 6.1 | 🎉 **MILESTONE: หุ่นยนต์เดินได้!** - ทดสอบ quadruped walking สำเร็จ |
+| 2025-12-29 | 6.2 | ✅ Phase 5 เสร็จสมบูรณ์ - Trot gait, ท่าประนีประนอม, เดินช้าแต่มั่นคง |
 
 ---
 
-**สถานะโดยรวม:** Phase 1, 2, 3, 4, 5.1-5.4 เสร็จสมบูรณ์ ✅ | Phase 5.5-5.6 กำลังวางแผน 📋 (Hardware Multi-leg Synchronization)
+**สถานะโดยรวม:** Phase 1-5 เสร็จสมบูรณ์ ✅ | Phase 6 (Sensor Feedback) กำลังวางแผน 📋
+
+🎉 **Milestone:** หุ่นยนต์สี่ขาสามารถเดินได้จริงบนฮาร์ดแวร์ (29 ธ.ค. 2025)
