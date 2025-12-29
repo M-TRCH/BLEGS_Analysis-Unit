@@ -147,11 +147,13 @@ UPDATE_RATE = 50  # Hz (20ms per update)
 # CRAWL:           40 steps = 800ms cycle  🐢 Very stable
 TRAJECTORY_STEPS = 25  # Number of steps in one gait cycle (500ms - เร็วขึ้น)
 
-GAIT_TYPE = 'trot'  # 'trot', 'walk', 'stand'
-# Gait Types:
+# Gait Types (can be changed during runtime):
 # - 'trot':  Diagonal pairs (FR+RL, FL+RR) - Fast, efficient (like Spot)
 # - 'walk':  Sequential legs (FR→RR→FL→RL) - Slow, very stable, 3 legs always on ground
+# - 'crawl': Sequential legs (slow) - Very slow & stable, 3 legs always on ground, safe mode
 # - 'stand': All legs same phase - Static pose testing
+DEFAULT_GAIT_TYPE = 'trot'  # Default gait type
+current_gait_type = DEFAULT_GAIT_TYPE  # Current active gait (can be changed)
 
 # --- Single Motor Mode ---
 SINGLE_MOTOR_MODE = False  # Set to True to enable single motor testing
@@ -853,29 +855,36 @@ def generate_elliptical_trajectory(num_steps=60, lift_height=30.0, step_forward=
     
     return trajectory
 
-def get_gait_phase_offset(leg_id, gait_type='trot'):
+def get_gait_phase_offset(leg_id):
     """
-    Get phase offset for each leg based on gait type
+    Get phase offset for each leg based on current gait type
     
     Args:
         leg_id: Leg identifier ('FR', 'FL', 'RR', 'RL')
-        gait_type: Type of gait ('trot', 'walk', 'stand')
         
     Returns:
         Phase offset in range [0, 1)
     """
-    if gait_type == 'trot':
+    global current_gait_type
+    
+    if current_gait_type == 'trot':
         # Trot: diagonal legs move together
         # FR+RL in phase, FL+RR opposite phase
         offsets = {'FR': 0.0, 'FL': 0.5, 'RR': 0.5, 'RL': 0.0}
         return offsets[leg_id]
     
-    elif gait_type == 'walk':
+    elif current_gait_type == 'walk':
         # Walk: legs move in sequence FR -> RR -> FL -> RL
         offsets = {'FR': 0.0, 'RR': 0.25, 'FL': 0.5, 'RL': 0.75}
         return offsets[leg_id]
     
-    elif gait_type == 'stand':
+    elif current_gait_type == 'crawl':
+        # Crawl: same as walk but with different parameters (slower, smaller steps)
+        # Legs move in sequence FR -> RR -> FL -> RL
+        offsets = {'FR': 0.0, 'RR': 0.25, 'FL': 0.5, 'RL': 0.75}
+        return offsets[leg_id]
+    
+    elif current_gait_type == 'stand':
         return 0.0
     
     return 0.0
@@ -909,6 +918,56 @@ def emergency_stop_all():
     print("\n⚠️  EMERGENCY STOP - ALL MOTORS!")
     for motor_id, controller in motor_registry.items():
         controller.send_emergency_stop()
+
+def select_gait_mode():
+    """Allow user to select gait mode at startup"""
+    global current_gait_type
+    
+    print("\n" + "="*70)
+    print("  🚶 SELECT GAIT MODE")
+    print("="*70)
+    print("  Available gait modes:")
+    print("    [1] TROT  - Diagonal pairs, fast & efficient (90mm/s) ⚡")
+    print("    [2] WALK  - Sequential legs, slow & stable (50mm/s) 🐢")
+    print("    [3] CRAWL - Very slow & stable, safe mode (25mm/s) 🐌")
+    print("    [4] STAND - Static pose testing")
+    print("="*70)
+    
+    while True:
+        choice = input("  Select mode [1-4] (default: 1): ").strip()
+        
+        if choice == '' or choice == '1':
+            current_gait_type = 'trot'
+            print(f"  ✅ Selected: TROT gait")
+            break
+        elif choice == '2':
+            current_gait_type = 'walk'
+            print(f"  ✅ Selected: WALK gait")
+            break
+        elif choice == '3':
+            current_gait_type = 'crawl'
+            print(f"  ✅ Selected: CRAWL gait")
+            break
+        elif choice == '4':
+            current_gait_type = 'stand'
+            print(f"  ✅ Selected: STAND mode")
+            break
+        else:
+            print("  ❌ Invalid choice. Please select 1, 2, 3, or 4.")
+    
+    return current_gait_type
+
+def change_gait_mode(new_mode):
+    """Change gait mode during runtime"""
+    global current_gait_type
+    
+    if new_mode in ['trot', 'walk', 'crawl', 'stand']:
+        old_mode = current_gait_type
+        current_gait_type = new_mode
+        mode_names = {'trot': 'TROT ⚡', 'walk': 'WALK 🐢', 'crawl': 'CRAWL 🐌', 'stand': 'STAND 🧍'}
+        print(f"\n🔄 Gait mode changed: {mode_names.get(old_mode, old_mode)} → {mode_names.get(new_mode, new_mode)}")
+        return True
+    return False
 
 # ============================================================================
 # SINGLE MOTOR CONTROL
@@ -1385,8 +1444,8 @@ def visualization_thread():
     global plot_running
     
     fig = plt.figure(figsize=(14, 10))
-    fig.suptitle(f'Quadruped Gait Control - Binary Protocol v1.2 - {GAIT_TYPE.upper()} Gait', 
-                 fontsize=14, weight='bold')
+    title_text = fig.suptitle(f'Quadruped Gait Control - Binary Protocol v1.2 - {current_gait_type.upper()} Gait', 
+                              fontsize=14, weight='bold')
     
     # Create 2x2 grid for 4 legs
     ax_FL = plt.subplot(2, 2, 1)
@@ -1402,13 +1461,16 @@ def visualization_thread():
     }
     
     # Add control instructions
-    fig.text(0.5, 0.02, 'Controls: [SPACE] Start/Stop  |  [R] Reset Stats  |  [E] Emergency Stop', 
-             ha='center', fontsize=10, family='monospace',
+    fig.text(0.5, 0.02, 'Controls: [SPACE] Start/Stop  |  [1/T] Trot  |  [2/W] Walk  |  [3/C] Crawl  |  [4/S] Stand  |  [R] Reset  |  [E] E-Stop', 
+             ha='center', fontsize=8.5, family='monospace',
              bbox=dict(boxstyle='round', facecolor='lightblue', alpha=0.8))
     
     def update_plot(frame):
         if not plot_running:
             return []
+        
+        # Update title with current gait type
+        title_text.set_text(f'Quadruped Gait Control - Binary Protocol v1.2 - {current_gait_type.upper()} Gait')
         
         artists = []
         for leg_id in ['FR', 'FL', 'RR', 'RL']:
@@ -1428,6 +1490,14 @@ def visualization_thread():
             reset_error_stats()
         elif event.key == 'e' or event.key == 'E':
             emergency_stop_all()
+        elif event.key == '1' or event.key == 't' or event.key == 'T':
+            change_gait_mode('trot')
+        elif event.key == '2' or event.key == 'w' or event.key == 'W':
+            change_gait_mode('walk')
+        elif event.key == '3' or event.key == 'c' or event.key == 'C':
+            change_gait_mode('crawl')
+        elif event.key == '4' or event.key == 's' or event.key == 'S':
+            change_gait_mode('stand')
     
     fig.canvas.mpl_connect('key_press_event', on_key_press)
     
@@ -1467,7 +1537,9 @@ def main():
     print(f"  Baud Rate: {BAUD_RATE}")
     
     if not SINGLE_MOTOR_MODE:
-        print(f"  Gait Type: {GAIT_TYPE.upper()}")
+        # Let user select gait mode
+        select_gait_mode()
+        print(f"  Gait Type: {current_gait_type.upper()}")
     
     print(f"  Control Mode: {'S-Curve' if CONTROL_MODE == ControlMode.MODE_SCURVE_PROFILE else 'Direct'}")
     print(f"  Update Rate: {UPDATE_RATE} Hz")
@@ -1589,11 +1661,13 @@ def main():
     time.sleep(3.5)  # Wait for home position (3s movement + margin)
     
     # --- Step 7: Main Gait Loop ---
-    print(f"\n⏸️  Gait control ready (PAUSED)")
+    print(f"\n⏸️  Gait control ready (PAUSED) - Mode: {current_gait_type.upper()}")
     if ENABLE_VISUALIZATION:
         print("  Press [SPACE] in visualization window to start")
+        print("  Press [1/T] Trot, [2/W] Walk, [3/C] Crawl, [4/S] Stand to change gait")
     else:
         print("  Press [SPACE] to start/pause")
+        print("  Press [1/T] Trot, [2/W] Walk, [3/C] Crawl, [4/S] Stand to change gait")
     print("  Press [E] for emergency stop")
     if not ENABLE_VISUALIZATION:
         print("  Press [Q] to quit")
@@ -1623,6 +1697,14 @@ def main():
                         print("\n⏹️  Quit requested...")
                         running = False
                         continue
+                    elif key == '1' or key == 't':
+                        change_gait_mode('trot')
+                    elif key == '2' or key == 'w':
+                        change_gait_mode('walk')
+                    elif key == '3' or key == 'c':
+                        change_gait_mode('crawl')
+                    elif key == '4' or key == 's':
+                        change_gait_mode('stand')
             
             # Check if paused
             with control_lock:
@@ -1637,7 +1719,7 @@ def main():
             # Update each leg
             for leg_id in leg_motors.keys():
                 # Calculate current phase
-                phase_offset = get_gait_phase_offset(leg_id, GAIT_TYPE)
+                phase_offset = get_gait_phase_offset(leg_id)
                 current_phase = (frame + int(phase_offset * TRAJECTORY_STEPS)) % TRAJECTORY_STEPS
                 
                 # Get target position
