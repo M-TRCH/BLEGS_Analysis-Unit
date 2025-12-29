@@ -26,6 +26,8 @@ import os
 from enum import IntEnum
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
+import csv
+from datetime import datetime
 
 # Windows keyboard input
 if sys.platform == 'win32':
@@ -162,7 +164,11 @@ SINGLE_MOTOR_PERIOD = 0.6  # Oscillation period in seconds (600ms)
  
 # --- Visualization Parameters ---
 ENABLE_VISUALIZATION = False
-PLOT_UPDATE_RATE = 10  # Hz 
+PLOT_UPDATE_RATE = 10  # Hz
+
+# --- Data Logging Parameters ---
+ENABLE_DATA_LOGGING = False  # Set to True to enable motor feedback logging
+LOG_DIRECTORY = "logs"  # Directory to store log files 
 
 # ============================================================================
 # GLOBAL VARIABLES
@@ -201,6 +207,12 @@ error_stats = {}
 # Single motor mode state
 single_motor_controller = None
 single_motor_start_time = None
+
+# Data logging
+log_file = None
+log_writer = None
+log_lock = threading.Lock()
+log_start_time = 0.0
 
 # ============================================================================
 # PROTOCOL FUNCTIONS
@@ -527,11 +539,12 @@ class BinaryMotorController:
                     status_flags = payload[7]
                     
                     with self.lock:
+                        self.motor_id = motor_id
                         self.current_position = (position_raw / 100.0) / GEAR_RATIO
                         self.current_current = current_raw
                         self.current_flags = status_flags
                     
-                    return {
+                    feedback_data = {
                         'motor_id': motor_id,
                         'position': self.current_position,
                         'current': current_raw,
@@ -541,6 +554,12 @@ class BinaryMotorController:
                         'error': bool(status_flags & StatusFlags.STATUS_ERROR),
                         'emergency_stopped': bool(status_flags & StatusFlags.STATUS_EMERGENCY_STOPPED)
                     }
+                    
+                    # Log feedback data if logging is enabled
+                    if ENABLE_DATA_LOGGING:
+                        log_motor_feedback(feedback_data, self.current_setpoint)
+                    
+                    return feedback_data
             return None
             
         except Exception as e:
@@ -918,6 +937,98 @@ def emergency_stop_all():
     print("\n⚠️  EMERGENCY STOP - ALL MOTORS!")
     for motor_id, controller in motor_registry.items():
         controller.send_emergency_stop()
+
+def initialize_data_logging():
+    """Initialize CSV log file for motor feedback data"""
+    global log_file, log_writer
+    
+    if not ENABLE_DATA_LOGGING:
+        return
+    
+    # Create logs directory if it doesn't exist
+    if not os.path.exists(LOG_DIRECTORY):
+        os.makedirs(LOG_DIRECTORY)
+        print(f"  📁 Created log directory: {LOG_DIRECTORY}")
+    
+    # Generate log filename with timestamp
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    log_filename = os.path.join(LOG_DIRECTORY, f"motor_feedback_{timestamp}.csv")
+    
+    try:
+        log_file = open(log_filename, 'w', newline='', buffering=1)  # Line buffering
+        log_writer = csv.writer(log_file)
+        
+        # Write header
+        log_writer.writerow([
+            'timestamp',
+            'elapsed_ms',
+            'motor_id',
+            'setpoint_deg',
+            'position_deg',
+            'error_deg',
+            'current_mA',
+            'flags_hex',
+            'is_moving',
+            'at_goal',
+            'error_flag',
+            'emergency_stopped'
+        ])
+        
+        print(f"  📝 Data logging initialized: {log_filename}")
+        return True
+        
+    except Exception as e:
+        print(f"  ❌ Failed to initialize data logging: {e}")
+        return False
+
+def log_motor_feedback(feedback_data, setpoint):
+    """Log motor feedback data to CSV file"""
+    global log_writer, log_file
+    
+    if not ENABLE_DATA_LOGGING or log_writer is None:
+        return
+    
+    try:
+        with log_lock:
+            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+            elapsed_ms = int((time.time() - log_start_time) * 1000)
+            
+            error_deg = setpoint - feedback_data['position']
+            
+            log_writer.writerow([
+                timestamp,
+                elapsed_ms,
+                feedback_data['motor_id'],
+                f"{setpoint:.2f}",
+                f"{feedback_data['position']:.2f}",
+                f"{error_deg:.2f}",
+                feedback_data['current'],
+                f"0x{feedback_data['flags']:02X}",
+                1 if feedback_data['is_moving'] else 0,
+                1 if feedback_data['at_goal'] else 0,
+                1 if feedback_data['error'] else 0,
+                1 if feedback_data['emergency_stopped'] else 0
+            ])
+            
+    except Exception as e:
+        pass  # Silent fail to avoid disrupting control loop
+
+def close_data_logging():
+    """Close log file and print summary"""
+    global log_file, log_writer
+    
+    if not ENABLE_DATA_LOGGING or log_file is None:
+        return
+    
+    try:
+        with log_lock:
+            if log_file:
+                log_file.close()
+                print("  📝 Data log file closed")
+                log_file = None
+                log_writer = None
+    except:
+        pass
 
 def select_gait_mode():
     """Allow user to select gait mode at startup"""
@@ -1521,7 +1632,7 @@ def start_visualization():
 # ============================================================================
 
 def main():
-    global plot_running, gait_running, gait_paused, leg_states
+    global plot_running, gait_running, gait_paused, leg_states, log_start_time
     
     print("="*70)
     print("  BLEGS Quadruped Gait Control - Binary Protocol v1.2")
@@ -1598,6 +1709,12 @@ def main():
     
     # --- Step 3: Start All Motors ---
     start_all_motors()
+    
+    # --- Step 3.5: Initialize Data Logging ---
+    if ENABLE_DATA_LOGGING:
+        print("\n📝 Initializing data logging...")
+        log_start_time = time.time()
+        initialize_data_logging()
     
     # --- Step 4: Start Visualization ---
     viz_thread = None
@@ -1836,6 +1953,10 @@ def main():
             time.sleep(3.5)
         except:
             pass
+        
+        # Close data logging
+        if ENABLE_DATA_LOGGING:
+            close_data_logging()
         
         # Print statistics
         print("\n📊 Communication Statistics:")
