@@ -132,8 +132,8 @@ DEFAULT_STANCE_OFFSET_X = 0.0   # mm
 # SPOT-LIKE TROT:  STEP=60mm, LIFT=25mm, STEPS=20 (400ms cycle, 150mm/s) ⚠️  Aggressive
 # CRAWL (STABLE):  STEP=20mm, LIFT=10mm, STEPS=40 (800ms cycle, 25mm/s)  🐢 Very stable
 
-GAIT_LIFT_HEIGHT = 15.0    # mm (ยกขาต่ำลง)
-GAIT_STEP_FORWARD = 45.0   # mm (ก้าวไกลขึ้นเพื่อความเร็ว)
+GAIT_LIFT_HEIGHT = 15.0    # mm (ยกขาสูง - ดีแล้ว ✅)
+GAIT_STEP_FORWARD = 50.0   # mm (ลดความเร็วลง)
 
 # ============================================================================
 # CONTROL PARAMETERS
@@ -144,18 +144,24 @@ UPDATE_RATE = 50  # Hz (20ms per update)
 
 # Gait Cycle Speed:
 # SLOW & STABLE:   30 steps = 600ms cycle  ✅ Tested stable
-# FAST (current):  25 steps = 500ms cycle  ✅ Tested working
-# SPOT-LIKE TROT:  20 steps = 400ms cycle  ⚠️  Requires testing
+# MODERATE TROT:   25 steps = 500ms cycle  ✅ Balanced speed
+# FAST TROT:       20 steps = 400ms cycle  ⚡ High frequency (Current)
 # CRAWL:           40 steps = 800ms cycle  🐢 Very stable
-TRAJECTORY_STEPS = 25  # Number of steps in one gait cycle (500ms - เร็วขึ้น)
+TRAJECTORY_STEPS = 20  # Number of steps in one gait cycle (400ms - ความถี่สูง ⚡)
 
 # Gait Types (can be changed during runtime):
 # - 'trot':  Diagonal pairs (FR+RL, FL+RR) - Fast, efficient (like Spot)
+# - 'smooth_trot': Diagonal pairs with longer stance phase - Balanced speed & stability (FORWARD) ✨
+# - 'backward_trot': Smooth backward locomotion - Gentle reverse motion ⏪
 # - 'walk':  Sequential legs (FR→RR→FL→RL) - Slow, very stable, 3 legs always on ground
 # - 'crawl': Sequential legs (slow) - Very slow & stable, 3 legs always on ground, safe mode
 # - 'stand': All legs same phase - Static pose testing
 DEFAULT_GAIT_TYPE = 'trot'  # Default gait type
 current_gait_type = DEFAULT_GAIT_TYPE  # Current active gait (can be changed)
+
+# Smooth Trot Parameters (Option A + Stance Ratio adjustment)
+SMOOTH_TROT_STEPS = 30      # 600ms cycle - gentler than standard trot
+SMOOTH_TROT_STANCE_RATIO = 0.65  # 65% ground contact (vs 50% standard trot)
 
 # --- Single Motor Mode ---
 SINGLE_MOTOR_MODE = False  # Set to True to enable single motor testing
@@ -847,7 +853,7 @@ def calculate_fk_positions(theta_A, theta_B, P_A, P_B):
 
 def generate_elliptical_trajectory(num_steps=60, lift_height=30.0, step_forward=60.0, mirror_x=False):
     """
-    Generate elliptical walking trajectory for one leg
+    Generate elliptical walking trajectory for one leg (symmetric - standard trot/walk)
     
     Args:
         num_steps: Number of steps in trajectory
@@ -874,6 +880,70 @@ def generate_elliptical_trajectory(num_steps=60, lift_height=30.0, step_forward=
     
     return trajectory
 
+def generate_asymmetric_trajectory(num_steps=30, lift_height=30.0, step_forward=60.0, 
+                                   stance_ratio=0.65, mirror_x=False, reverse=False):
+    """
+    Generate asymmetric walking trajectory with adjustable stance ratio (smooth trot)
+    
+    Uses elliptical-like motion but with asymmetric timing:
+    - Longer time on ground (stance phase)
+    - Shorter time in air (swing phase)
+    
+    This maintains continuous forward motion while providing longer ground contact
+    for better stability and reduced impact forces.
+    
+    Args:
+        num_steps: Number of steps in trajectory
+        lift_height: Maximum height lift (mm)
+        step_forward: Step length (mm)
+        stance_ratio: Ratio of stance phase (0.65 = 65% on ground, 35% in air)
+        mirror_x: If True, reverse X direction (for right side legs)
+        reverse: If True, walk backward instead of forward
+        
+    Returns:
+        List of (x, y) positions in leg frame
+    """
+    trajectory = []
+    home_y = DEFAULT_STANCE_HEIGHT  # -200mm
+    
+    swing_steps = int(num_steps * (1 - stance_ratio))  # ~10 steps (35%)
+    stance_steps = num_steps - swing_steps              # ~20 steps (65%)
+    
+    # Generate elliptical-like trajectory but with time-warping
+    # Use full ellipse (2π) but spend more time in stance phase
+    
+    # Direction multiplier: +1 for forward, -1 for backward
+    direction = -1 if reverse else 1
+    
+    for i in range(num_steps):
+        if i < swing_steps:
+            # Swing phase FIRST: π to 2π (top half of ellipse - in air)
+            # Faster progression - foot swings from back to front while lifted
+            phase_progress = i / swing_steps
+            t = np.pi + np.pi * phase_progress  # π to 2π
+        else:
+            # Stance phase SECOND: 0 to π (bottom half of ellipse - on ground)
+            # Slower progression - foot pushes from front to back (body moves forward)
+            stance_index = i - swing_steps
+            phase_progress = stance_index / stance_steps
+            t = np.pi * phase_progress  # 0 to π
+        
+        # Elliptical motion
+        # direction=1: -cos(t) for forward, direction=-1: +cos(t) for backward
+        px = direction * (-step_forward * np.cos(t))
+        if mirror_x:
+            px = -px
+        
+        # Y: Only lift during swing phase (π to 2π)
+        if i < swing_steps:  # Swing phase
+            py = home_y + lift_height * abs(np.sin(t))
+        else:  # Stance phase
+            py = home_y  # Stay on ground
+        
+        trajectory.append((px, py))
+    
+    return trajectory
+
 def get_gait_phase_offset(leg_id):
     """
     Get phase offset for each leg based on current gait type
@@ -886,7 +956,7 @@ def get_gait_phase_offset(leg_id):
     """
     global current_gait_type
     
-    if current_gait_type == 'trot':
+    if current_gait_type == 'trot' or current_gait_type == 'smooth_trot' or current_gait_type == 'backward_trot':
         # Trot: diagonal legs move together
         # FR+RL in phase, FL+RR opposite phase
         offsets = {'FR': 0.0, 'FL': 0.5, 'RR': 0.5, 'RL': 0.0}
@@ -1038,33 +1108,43 @@ def select_gait_mode():
     print("  🚶 SELECT GAIT MODE")
     print("="*70)
     print("  Available gait modes:")
-    print("    [1] TROT  - Diagonal pairs, fast & efficient (90mm/s) ⚡")
-    print("    [2] WALK  - Sequential legs, slow & stable (50mm/s) 🐢")
-    print("    [3] CRAWL - Very slow & stable, safe mode (25mm/s) 🐌")
-    print("    [4] STAND - Static pose testing")
+    print("    [1] TROT         - Diagonal pairs, fast & efficient (100mm/s) ⚡")
+    print("    [2] SMOOTH TROT  - Diagonal pairs, balanced & stable (80mm/s) ✨")
+    print("    [3] BACKWARD     - Smooth reverse motion (80mm/s) ⏪")
+    print("    [4] WALK         - Sequential legs, slow & stable (50mm/s) 🐢")
+    print("    [5] CRAWL        - Very slow & stable, safe mode (25mm/s) 🐌")
+    print("    [6] STAND        - Static pose testing")
     print("="*70)
     
     while True:
-        choice = input("  Select mode [1-4] (default: 1): ").strip()
+        choice = input("  Select mode [1-6] (default: 1): ").strip()
         
         if choice == '' or choice == '1':
             current_gait_type = 'trot'
-            print(f"  ✅ Selected: TROT gait")
+            print(f"  ✅ Selected: TROT gait (fast)")
             break
         elif choice == '2':
+            current_gait_type = 'smooth_trot'
+            print(f"  ✅ Selected: SMOOTH TROT gait (forward) ✨")
+            break
+        elif choice == '3':
+            current_gait_type = 'backward_trot'
+            print(f"  ✅ Selected: BACKWARD TROT gait (reverse) ⏪")
+            break
+        elif choice == '4':
             current_gait_type = 'walk'
             print(f"  ✅ Selected: WALK gait")
             break
-        elif choice == '3':
+        elif choice == '5':
             current_gait_type = 'crawl'
             print(f"  ✅ Selected: CRAWL gait")
             break
-        elif choice == '4':
+        elif choice == '6':
             current_gait_type = 'stand'
             print(f"  ✅ Selected: STAND mode")
             break
         else:
-            print("  ❌ Invalid choice. Please select 1, 2, 3, or 4.")
+            print("  ❌ Invalid choice. Please select 1, 2, 3, 4, 5, or 6.")
     
     return current_gait_type
 
@@ -1072,10 +1152,17 @@ def change_gait_mode(new_mode):
     """Change gait mode during runtime"""
     global current_gait_type
     
-    if new_mode in ['trot', 'walk', 'crawl', 'stand']:
+    if new_mode in ['trot', 'smooth_trot', 'backward_trot', 'walk', 'crawl', 'stand']:
         old_mode = current_gait_type
         current_gait_type = new_mode
-        mode_names = {'trot': 'TROT ⚡', 'walk': 'WALK 🐢', 'crawl': 'CRAWL 🐌', 'stand': 'STAND 🧍'}
+        mode_names = {
+            'trot': 'TROT ⚡', 
+            'smooth_trot': 'SMOOTH TROT ✨',
+            'backward_trot': 'BACKWARD ⏪',
+            'walk': 'WALK 🐢', 
+            'crawl': 'CRAWL 🐌', 
+            'stand': 'STAND 🧍'
+        }
         print(f"\n🔄 Gait mode changed: {mode_names.get(old_mode, old_mode)} → {mode_names.get(new_mode, new_mode)}")
         return True
     return False
@@ -1572,7 +1659,7 @@ def visualization_thread():
     }
     
     # Add control instructions
-    fig.text(0.5, 0.02, 'Controls: [SPACE] Start/Stop  |  [1/T] Trot  |  [2/W] Walk  |  [3/C] Crawl  |  [4/S] Stand  |  [R] Reset  |  [E] E-Stop', 
+    fig.text(0.5, 0.02, 'Controls: [SPACE] Start/Stop  |  [1/T] Trot  |  [2/M] Smooth  |  [3/B] Back  |  [4/W] Walk  |  [5/C] Crawl  |  [6/S] Stand  |  [R] Reset  |  [E] E-Stop', 
              ha='center', fontsize=8.5, family='monospace',
              bbox=dict(boxstyle='round', facecolor='lightblue', alpha=0.8))
     
@@ -1603,11 +1690,15 @@ def visualization_thread():
             emergency_stop_all()
         elif event.key == '1' or event.key == 't' or event.key == 'T':
             change_gait_mode('trot')
-        elif event.key == '2' or event.key == 'w' or event.key == 'W':
+        elif event.key == '2' or event.key == 'm' or event.key == 'M':
+            change_gait_mode('smooth_trot')
+        elif event.key == '3' or event.key == 'b' or event.key == 'B':
+            change_gait_mode('backward_trot')
+        elif event.key == '4' or event.key == 'w' or event.key == 'W':
             change_gait_mode('walk')
-        elif event.key == '3' or event.key == 'c' or event.key == 'C':
+        elif event.key == '5' or event.key == 'c' or event.key == 'C':
             change_gait_mode('crawl')
-        elif event.key == '4' or event.key == 's' or event.key == 'S':
+        elif event.key == '6' or event.key == 's' or event.key == 'S':
             change_gait_mode('stand')
     
     fig.canvas.mpl_connect('key_press_event', on_key_press)
@@ -1726,15 +1817,45 @@ def main():
     # --- Step 5: Generate Trajectories ---
     print(f"\n🚶 Generating walking trajectories...")
     trajectories = {}
-    for leg_id in ['FR', 'FL', 'RR', 'RL']:
-        mirror_x = leg_id in ['FR', 'RR']
-        trajectories[leg_id] = generate_elliptical_trajectory(
-            num_steps=TRAJECTORY_STEPS,
-            lift_height=GAIT_LIFT_HEIGHT,
-            step_forward=GAIT_STEP_FORWARD,
-            mirror_x=mirror_x
-        )
-    print(f"  Generated {TRAJECTORY_STEPS} waypoints per leg")
+    
+    # Select trajectory generator based on gait type
+    if current_gait_type == 'smooth_trot':
+        # Use asymmetric trajectory with longer stance phase (FORWARD)
+        for leg_id in ['FR', 'FL', 'RR', 'RL']:
+            mirror_x = leg_id in ['FR', 'RR']
+            trajectories[leg_id] = generate_asymmetric_trajectory(
+                num_steps=SMOOTH_TROT_STEPS,
+                lift_height=GAIT_LIFT_HEIGHT,
+                step_forward=GAIT_STEP_FORWARD,
+                stance_ratio=SMOOTH_TROT_STANCE_RATIO,
+                mirror_x=mirror_x,
+                reverse=False  # Forward motion
+            )
+        print(f"  Generated {SMOOTH_TROT_STEPS} waypoints per leg (asymmetric, stance={SMOOTH_TROT_STANCE_RATIO}, FORWARD)")
+    elif current_gait_type == 'backward_trot':
+        # Use asymmetric trajectory for smooth backward motion
+        for leg_id in ['FR', 'FL', 'RR', 'RL']:
+            mirror_x = leg_id in ['FR', 'RR']
+            trajectories[leg_id] = generate_asymmetric_trajectory(
+                num_steps=SMOOTH_TROT_STEPS,
+                lift_height=GAIT_LIFT_HEIGHT,
+                step_forward=GAIT_STEP_FORWARD,
+                stance_ratio=SMOOTH_TROT_STANCE_RATIO,
+                mirror_x=mirror_x,
+                reverse=True  # Backward motion
+            )
+        print(f"  Generated {SMOOTH_TROT_STEPS} waypoints per leg (asymmetric, stance={SMOOTH_TROT_STANCE_RATIO}, BACKWARD)")
+    else:
+        # Use standard elliptical trajectory
+        for leg_id in ['FR', 'FL', 'RR', 'RL']:
+            mirror_x = leg_id in ['FR', 'RR']
+            trajectories[leg_id] = generate_elliptical_trajectory(
+                num_steps=TRAJECTORY_STEPS,
+                lift_height=GAIT_LIFT_HEIGHT,
+                step_forward=GAIT_STEP_FORWARD,
+                mirror_x=mirror_x
+            )
+        print(f"  Generated {TRAJECTORY_STEPS} waypoints per leg (elliptical)")
     
     # --- Step 6: Initialize Home Position ---
     print(f"\n🏠 Moving to home position...")
@@ -1781,10 +1902,10 @@ def main():
     print(f"\n⏸️  Gait control ready (PAUSED) - Mode: {current_gait_type.upper()}")
     if ENABLE_VISUALIZATION:
         print("  Press [SPACE] in visualization window to start")
-        print("  Press [1/T] Trot, [2/W] Walk, [3/C] Crawl, [4/S] Stand to change gait")
+        print("  Press [1/T] Trot, [2/M] Smooth, [3/B] Back, [4/W] Walk, [5/C] Crawl, [6/S] Stand")
     else:
         print("  Press [SPACE] to start/pause")
-        print("  Press [1/T] Trot, [2/W] Walk, [3/C] Crawl, [4/S] Stand to change gait")
+        print("  Press [1/T] Trot, [2/M] Smooth, [3/B] Back, [4/W] Walk, [5/C] Crawl, [6/S] Stand")
     print("  Press [E] for emergency stop")
     if not ENABLE_VISUALIZATION:
         print("  Press [Q] to quit")
@@ -1796,9 +1917,46 @@ def main():
     frame = 0
     last_status_time = 0
     running = True
+    last_gait_type = current_gait_type  # Track gait mode changes
     
     try:
         while running and plot_running:
+            # Regenerate trajectories if gait mode changed
+            if current_gait_type != last_gait_type:
+                print(f"\n🔄 Regenerating trajectories for {current_gait_type.upper()} mode...")
+                if current_gait_type == 'smooth_trot':
+                    for leg_id in ['FR', 'FL', 'RR', 'RL']:
+                        mirror_x = leg_id in ['FR', 'RR']
+                        trajectories[leg_id] = generate_asymmetric_trajectory(
+                            num_steps=SMOOTH_TROT_STEPS,
+                            lift_height=GAIT_LIFT_HEIGHT,
+                            step_forward=GAIT_STEP_FORWARD,
+                            stance_ratio=SMOOTH_TROT_STANCE_RATIO,
+                            mirror_x=mirror_x,
+                            reverse=False  # Forward
+                        )
+                elif current_gait_type == 'backward_trot':
+                    for leg_id in ['FR', 'FL', 'RR', 'RL']:
+                        mirror_x = leg_id in ['FR', 'RR']
+                        trajectories[leg_id] = generate_asymmetric_trajectory(
+                            num_steps=SMOOTH_TROT_STEPS,
+                            lift_height=GAIT_LIFT_HEIGHT,
+                            step_forward=GAIT_STEP_FORWARD,
+                            stance_ratio=SMOOTH_TROT_STANCE_RATIO,
+                            mirror_x=mirror_x,
+                            reverse=True  # Backward
+                        )
+                else:
+                    for leg_id in ['FR', 'FL', 'RR', 'RL']:
+                        mirror_x = leg_id in ['FR', 'RR']
+                        trajectories[leg_id] = generate_elliptical_trajectory(
+                            num_steps=TRAJECTORY_STEPS,
+                            lift_height=GAIT_LIFT_HEIGHT,
+                            step_forward=GAIT_STEP_FORWARD,
+                            mirror_x=mirror_x
+                        )
+                last_gait_type = current_gait_type
+                frame = 0  # Reset frame counter
             # Check keyboard input (for non-visualization mode)
             if not ENABLE_VISUALIZATION:
                 key = check_keyboard_input()
@@ -1835,9 +1993,12 @@ def main():
             
             # Update each leg
             for leg_id in leg_motors.keys():
+                # Get trajectory length based on current gait
+                traj_len = SMOOTH_TROT_STEPS if current_gait_type in ['smooth_trot', 'backward_trot'] else TRAJECTORY_STEPS
+                
                 # Calculate current phase
                 phase_offset = get_gait_phase_offset(leg_id)
-                current_phase = (frame + int(phase_offset * TRAJECTORY_STEPS)) % TRAJECTORY_STEPS
+                current_phase = (frame + int(phase_offset * traj_len)) % traj_len
                 
                 # Get target position
                 if leg_id in trajectories:
@@ -1910,7 +2071,8 @@ def main():
                             leg_states[leg_id]['actual_angles'][1] = np.deg2rad(feedback_b['position'])
             
             # Update frame counter
-            frame = (frame + 1) % TRAJECTORY_STEPS
+            traj_len = SMOOTH_TROT_STEPS if current_gait_type in ['smooth_trot', 'backward_trot'] else TRAJECTORY_STEPS
+            frame = (frame + 1) % traj_len
             
             # Print status every cycle (or periodically in non-viz mode)
             if frame == 0:

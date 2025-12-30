@@ -18,7 +18,7 @@ MARKER_SIZE_METERS = 0.039  # 39 มิลลิเมตร = 0.039 เมต�
 # ใช้ path แบบ absolute หรือ relative จากตำแหน่งสคริปต์
 import os
 script_dir = os.path.dirname(os.path.abspath(__file__))
-calib_file = os.path.join(script_dir, "camera_calibration", "camera_params_1080p60.npz")
+calib_file = os.path.join(script_dir, "camera_calibration", "camera_params_ef1635f4l_1080p60.npz")
 
 try:
     calib_data = np.load(calib_file)
