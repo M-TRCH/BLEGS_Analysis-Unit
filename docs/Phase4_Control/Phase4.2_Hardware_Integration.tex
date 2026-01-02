@@ -174,7 +174,7 @@ CRC Algorithm & CRC-16-CCITT \\
 
 \subsection{โครงสร้าง Packet}
 
-\subsubsection{Command Packet (PC → MCU)}
+\subsubsection{Command Packet (คอมพิวเตอร์ส่งไปยังไมโครคอนโทรลเลอร์)}
 
 คำสั่งที่ส่งจาก PC ไปยัง Motor Controller มีโครงสร้างดังนี้:
 
@@ -197,7 +197,7 @@ CRC Algorithm & CRC-16-CCITT \\
 
 \textbf{หมายเหตุ:} float32 ใช้ IEEE 754 format, little-endian byte order
 
-\subsubsection{Response Packet (MCU → PC)}
+\subsubsection{Response Packet (ไมโครคอนโทรลเลอร์ตอบกลับไปยังคอมพิวเตอร์)}
 
 ข้อมูล feedback ที่ส่งกลับจาก Motor Controller:
 
@@ -286,20 +286,22 @@ def crc16_ccitt(data):
 
 \subsubsection{Timeout Protection}
 
-ถ้าไม่ได้รับ Response ภายใน Timeout period:
+เมื่อไม่ได้รับ Response ภายใน Timeout period ระบบจะดำเนินการดังนี้:
 
 \begin{itemize}
-    \item \textbf{Timeout period:} 100 ms
-    \item \textbf{Action:} Retry 3 ครั้ง
-    \item \textbf{Fallback:} ถ้า retry ครบแล้วยังไม่สำเร็จ → Emergency stop
+    \item \textbf{Timeout period:} 100 ms เป็นเวลาสูงสุดที่รอก่อนจะถือว่าไม่ได้รับ Response
+    \item \textbf{Action:} ทำการ Retry สูงสุด 3 ครั้ง โดยมีการหน่วงเวลา 10 ms ระหว่างแต่ละครั้ง
+    \item \textbf{Fallback:} ถ้า retry ครบ 3 ครั้งแล้วยังไม่สำเร็จ ระบบจะสั่ง Emergency stop เพื่อความปลอดภัย
 \end{itemize}
 
 \subsubsection{Packet Loss Recovery}
 
+ขั้นตอนการกู้คืนเมื่อเกิดการสูญหาย Packet:
+
 \begin{enumerate}
-    \item ตรวจสอบ CRC ของ Packet ที่รับได้
-    \item ถ้า CRC ไม่ตรง → ทิ้ง Packet และขอส่งใหม่
-    \item บันทึก Error rate สำหรับการวิเคราะห์
+    \item \textbf{ตรวจสอบ CRC:} เมื่อได้รับ Packet ใหม่ ตรวจสอบ CRC ก่อนดำเนินการต่อ
+    \item \textbf{จัดการ CRC Mismatch:} ถ้า CRC ไม่ตรงกัน ให้ทิ้ง Packet ที่เสียหายและขอส่งใหม่
+    \item \textbf{บันทึก Error:} เก็บข้อมูล Error rate สำหรับการวิเคราะห์และปรับปรุงระบบ
 \end{enumerate}
 
 %=============================================================================
@@ -436,30 +438,34 @@ Motor Temperature & 45-52°C \\
 \subsubsection{การวินิจฉัยสาเหตุ}
 
 \textbf{ทดสอบที่ 1: ลด Update Rate}
+
+ทำการทดสอบโดยปรับ Update rate เป็น 3 ระดับและสังเกตผลกระทบต่อ Jitter:
 \begin{itemize}
-    \item ทดสอบ 50 Hz → Jitter ลดลง 50\%
-    \item ทดสอบ 100 Hz → Jitter ลดลง 30\%
-    \item ทดสอบ 200 Hz → Jitter รุนแรงมาก
+    \item ทดสอบ 50 Hz: Jitter ลดลง 50\% แต่ความเร็วในการอัพเดตตำแหน่งต่ำเกินไป
+    \item ทดสอบ 100 Hz: Jitter ลดลง 30\% เป็นค่าที่สมดุลระหว่างความเร็วและความนุ่มนวล
+    \item ทดสอบ 200 Hz: Jitter รุนแรงมาก มอเตอร์สั่นอย่างรุนแรง
 \end{itemize}
 
-\textbf{สรุป:} Update rate สูงเกินไป → มอเตอร์ไม่ทันตอบสนอง → เกิด Oscillation
+\textbf{สรุปการวินิจฉัย:} Update rate ที่สูงเกินไปทำให้มอเตอร์ไม่ทันตอบสนองต่อคำสั่งตำแหน่งใหม่ที่เข้ามาอย่างรวดเร็ว ทำให้เกิด Oscillation ระหว่างตำแหน่งเป้าหมายและตำแหน่งจริง
 
 \textbf{ทดสอบที่ 2: วิเคราะห์ Trajectory}
+
+ทำการวิเคราะห์ Trajectory ที่สร้างขึ้นพบว่า:
 \begin{itemize}
-    \item Trajectory มี Discontinuity (กระโดด)
-    \item ความเร่งเปลี่ยนแปลงแบบ step change
-    \item Jerk สูง (ความเร่งเปลี่ยนทันที)
+    \item Trajectory มี Discontinuity (กระโดด) ในบางจุด
+    \item ความเร่งเปลี่ยนแปลงแบบ step change ที่เปลี่ยนกะทันหัน
+    \item Jerk สูง (คืออัตราการเปลี่ยนแปลงของความเร่ง) ทำให้การเคลื่อนที่ไม่นุ่มนวล
 \end{itemize}
 
-\textbf{สรุป:} Trajectory ไม่นุ่มนวลพอ → มอเตอร์พยายามติดตาม → เกิด Jitter
+\textbf{สรุปการวินิจฉัย:} Trajectory ที่ไม่นุ่มนวลพอทำให้มอเตอร์พยายามติดตามการเปลี่ยนแปลงตำแหน่งที่กระโดด ซึ่งเกินความสามารถของมอเตอร์ ทำให้เกิด Jitter
 
 \subsubsection{วิธีแก้ไข}
 
 \textbf{Solution 1: ปรับ Update Rate}
-\begin{itemize}
-    \item ลดจาก 200 Hz → 100 Hz
-    \item ผล: Jitter ลดลง ~30\%
-\end{itemize}
+
+ลด Update rate จาก 200 Hz ลงเป็น 100 Hz ซึ่งเป็นค่าที่เหมาะสมกับความสามารถในการตอบสนองของมอเตอร์
+
+\textbf{ผลลัพธ์:} Jitter ลดลงประมาณ 30\%
 
 \textbf{Solution 2: Trajectory Smoothing}
 \begin{lstlisting}[language=Python, caption=Trajectory Smoothing]
@@ -503,13 +509,13 @@ Current Limit & 10 A & 8 A & -20\% \\
 
 \subsubsection{ผลลัพธ์รวม}
 
-หลังจากใช้ทั้ง 3 solutions ร่วมกัน:
+หลังจากใช้ทั้ง 3 solutions ร่วมกัน พบว่าปัญหา Motor Jitter ลดลงอย่างมาก:
 \begin{itemize}
-    \item[\checkmark] Jitter ลดลง ~90\%
-    \item[\checkmark] เสียงเบาลงมาก
-    \item[\checkmark] Current draw ลดลง ~25\%
-    \item[\checkmark] อุณหภูมิมอเตอร์ลดลง 8-10°C
-    \item[\checkmark] Success rate เพิ่มขึ้นจาก 85\% → 96-99\%
+    \item Jitter ลดลงประมาณ 90\% มอเตอร์ทำงานได้เสถียรมากขึ้น
+    \item เสียงเบาลงมาก แทบไม่ได้ยินเสียงสั่นความถี่สูง
+    \item Current draw ลดลงประมาณ 25\% ทำให้ประหยัดพลังงานได้
+    \item อุณหภูมิมอเตอร์ลดลง 8-10°C ซึ่งอยู่ในเกณฑ์ที่ปลอดภัย
+    \item Success rate เพิ่มขึ้นจาก 85\% เป็น 96-99\% ซึ่งเกินเป้าหมายที่ตั้งไว้
 \end{itemize}
 
 \subsection{ปัญหา Communication Timeout}
@@ -531,10 +537,14 @@ Current Limit & 10 A & 8 A & -20\% \\
 \subsubsection{วิธีแก้ไข}
 
 \textbf{Solution 1: Increase Serial Buffer Size (MCU)}
+
+เพิ่มขนาด Buffer ของ MCU เพื่อรองรับการรับส่งข้อมูลจำนวนมาก:
 \begin{itemize}
-    \item เพิ่ม RX buffer จาก 64 bytes → 256 bytes
-    \item เพิ่ม TX buffer จาก 64 bytes → 256 bytes
+    \item เพิ่ม RX buffer จาก 64 bytes เป็น 256 bytes (4 เท่า)
+    \item เพิ่ม TX buffer จาก 64 bytes เป็น 256 bytes (4 เท่า)
 \end{itemize}
+
+การเพิ่ม Buffer ทำให้ MCU มีพื้นที่ในการเก็บข้อมูลมากขึ้น ลดความเสี่ยงของ Buffer overflow
 
 \textbf{Solution 2: Optimize MCU Firmware}
 \begin{itemize}
@@ -560,10 +570,12 @@ def send_command_with_retry(motor_id, position, max_retries=3):
 \end{lstlisting}
 
 \subsubsection{ผลลัพธ์}
+
+หลังจากแก้ปัญหา Communication Timeout พบว่าประสิทธิภาพการสื่อสารดีขึ้นอย่างมาก:
 \begin{itemize}
-    \item[\checkmark] Timeout rate ลดลงจาก 3-5\% → $< 1$\%
-    \item[\checkmark] Communication เสถียรขึ้น
-    \item[\checkmark] ไม่พบ Buffer overflow
+    \item Timeout rate ลดลงจาก 3-5\% เป็นน้อยกว่า 1\% ซึ่งอยู่ในเกณฑ์ที่ยอมรับได้
+    \item Communication เสถียรขึ้น ไม่พบปัญหาการขาดการสื่อสารในระหว่างทดสอบ
+    \item ไม่พบ Buffer overflow อีกต่อไป
 \end{itemize}
 
 %=============================================================================
