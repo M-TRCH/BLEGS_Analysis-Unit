@@ -122,7 +122,7 @@ P_A_RIGHT = np.array([MOTOR_SPACING/2, 0.0])
 P_B_RIGHT = np.array([-MOTOR_SPACING/2, 0.0])
 
 # --- Default Standing Pose ---
-DEFAULT_STANCE_HEIGHT = -200.0  # mm (negative = down)
+DEFAULT_STANCE_HEIGHT = -200.0  # mm (negative = down) - Adjusted for longer legs
 DEFAULT_STANCE_OFFSET_X = 0.0   # mm
 
 # --- Motion Parameters ---
@@ -134,6 +134,9 @@ DEFAULT_STANCE_OFFSET_X = 0.0   # mm
 
 GAIT_LIFT_HEIGHT = 15.0    # mm (ยกขาสูง - ดีแล้ว ✅)
 GAIT_STEP_FORWARD = 50.0   # mm (ลดความเร็วลง)
+
+# Smooth Trot & Backward Trot Lift Height
+SMOOTH_TROT_LIFT_HEIGHT = 15.0  # mm
 
 # ============================================================================
 # CONTROL PARAMETERS
@@ -173,7 +176,7 @@ ENABLE_VISUALIZATION = False
 PLOT_UPDATE_RATE = 10  # Hz
 
 # --- Data Logging Parameters ---
-ENABLE_DATA_LOGGING = False  # Set to True to enable motor feedback logging
+ENABLE_DATA_LOGGING = True  # Set to True to enable motor feedback logging
 LOG_DIRECTORY = "logs"  # Directory to store log files 
 
 # ============================================================================
@@ -219,6 +222,7 @@ log_file = None
 log_writer = None
 log_lock = threading.Lock()
 log_start_time = 0.0
+log_record_count = 0  # Track number of records written
 
 # ============================================================================
 # PROTOCOL FUNCTIONS
@@ -393,21 +397,6 @@ class BinaryMotorController:
                 self.serial.flush()  # Ensure data is sent immediately
                 self.stats_tx_count += 1
                 self.current_setpoint = angle_deg
-                
-                # Try to read feedback response (non-blocking)
-                # Wait a short time for response
-                time.sleep(0.001)  # 1ms wait for response
-                if self.serial.in_waiting >= 12:  # Minimum packet size
-                    result = self._read_packet()
-                    if result:
-                        pkt_type, payload_data = result
-                        if pkt_type == PacketType.PKT_FB_STATUS and len(payload_data) >= 8:
-                            position_raw = struct.unpack('<i', payload_data[1:5])[0]
-                            current_raw = struct.unpack('<h', payload_data[5:7])[0]
-                            status_flags = payload_data[7]
-                            self.current_position = (position_raw / 100.0) / GEAR_RATIO
-                            self.current_current = current_raw
-                            self.current_flags = status_flags
             
             return True
             
@@ -560,10 +549,6 @@ class BinaryMotorController:
                         'error': bool(status_flags & StatusFlags.STATUS_ERROR),
                         'emergency_stopped': bool(status_flags & StatusFlags.STATUS_EMERGENCY_STOPPED)
                     }
-                    
-                    # Log feedback data if logging is enabled
-                    if ENABLE_DATA_LOGGING:
-                        log_motor_feedback(feedback_data, self.current_setpoint)
                     
                     return feedback_data
             return None
@@ -1043,17 +1028,26 @@ def initialize_data_logging():
             'error_flag',
             'emergency_stopped'
         ])
+        log_file.flush()  # Ensure header is written immediately
         
         print(f"  📝 Data logging initialized: {log_filename}")
+        print(f"  ℹ️  Logging enabled = {ENABLE_DATA_LOGGING}")
+        print(f"  ℹ️  Log writer ready = {log_writer is not None}")
         return True
         
     except Exception as e:
         print(f"  ❌ Failed to initialize data logging: {e}")
         return False
 
-def log_motor_feedback(feedback_data, setpoint):
-    """Log motor feedback data to CSV file"""
-    global log_writer, log_file
+def log_motor_feedback(feedback_data, setpoint, motor_id=None):
+    """Log motor feedback data to CSV file
+    
+    Args:
+        feedback_data: Feedback dict or None if feedback failed
+        setpoint: Commanded position in degrees
+        motor_id: Motor ID (required if feedback_data is None)
+    """
+    global log_writer, log_file, log_record_count
     
     if not ENABLE_DATA_LOGGING or log_writer is None:
         return
@@ -1063,29 +1057,53 @@ def log_motor_feedback(feedback_data, setpoint):
             timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
             elapsed_ms = int((time.time() - log_start_time) * 1000)
             
-            error_deg = setpoint - feedback_data['position']
+            if feedback_data is not None:
+                # Normal case: feedback received
+                error_deg = setpoint - feedback_data['position']
+                
+                log_writer.writerow([
+                    timestamp,
+                    elapsed_ms,
+                    feedback_data['motor_id'],
+                    f"{setpoint:.2f}",
+                    f"{feedback_data['position']:.2f}",
+                    f"{error_deg:.2f}",
+                    feedback_data['current'],
+                    f"0x{feedback_data['flags']:02X}",
+                    1 if feedback_data['is_moving'] else 0,
+                    1 if feedback_data['at_goal'] else 0,
+                    1 if feedback_data['error'] else 0,
+                    1 if feedback_data['emergency_stopped'] else 0
+                ])
+                log_record_count += 1
+            else:
+                # Feedback missing: log setpoint with null feedback values
+                if motor_id is None:
+                    return  # Can't log without motor ID
+                
+                log_writer.writerow([
+                    timestamp,
+                    elapsed_ms,
+                    motor_id,
+                    f"{setpoint:.2f}",
+                    "NaN",  # position unavailable
+                    "NaN",  # error unavailable
+                    "0",    # current unavailable
+                    "0xFF", # flags invalid
+                    0, 0, 1, 0  # Mark as error condition
+                ])
+                log_record_count += 1
             
-            log_writer.writerow([
-                timestamp,
-                elapsed_ms,
-                feedback_data['motor_id'],
-                f"{setpoint:.2f}",
-                f"{feedback_data['position']:.2f}",
-                f"{error_deg:.2f}",
-                feedback_data['current'],
-                f"0x{feedback_data['flags']:02X}",
-                1 if feedback_data['is_moving'] else 0,
-                1 if feedback_data['at_goal'] else 0,
-                1 if feedback_data['error'] else 0,
-                1 if feedback_data['emergency_stopped'] else 0
-            ])
+            # Flush every 50 records to ensure data is written
+            if hasattr(log_file, 'flush') and (log_record_count % 50) == 0:
+                log_file.flush()
             
     except Exception as e:
-        pass  # Silent fail to avoid disrupting control loop
+        print(f"⚠️ Logging error: {e}")  # Debug: print errors
 
 def close_data_logging():
     """Close log file and print summary"""
-    global log_file, log_writer
+    global log_file, log_writer, log_record_count
     
     if not ENABLE_DATA_LOGGING or log_file is None:
         return
@@ -1093,12 +1111,13 @@ def close_data_logging():
     try:
         with log_lock:
             if log_file:
+                log_file.flush()  # Final flush
                 log_file.close()
-                print("  📝 Data log file closed")
+                print(f"  📝 Data log file closed ({log_record_count} records written)")
                 log_file = None
                 log_writer = None
-    except:
-        pass
+    except Exception as e:
+        print(f"  ⚠️ Error closing log: {e}")
 
 def select_gait_mode():
     """Allow user to select gait mode at startup"""
@@ -1825,26 +1844,26 @@ def main():
             mirror_x = leg_id in ['FR', 'RR']
             trajectories[leg_id] = generate_asymmetric_trajectory(
                 num_steps=SMOOTH_TROT_STEPS,
-                lift_height=GAIT_LIFT_HEIGHT,
+                lift_height=SMOOTH_TROT_LIFT_HEIGHT,
                 step_forward=GAIT_STEP_FORWARD,
                 stance_ratio=SMOOTH_TROT_STANCE_RATIO,
                 mirror_x=mirror_x,
                 reverse=False  # Forward motion
             )
-        print(f"  Generated {SMOOTH_TROT_STEPS} waypoints per leg (asymmetric, stance={SMOOTH_TROT_STANCE_RATIO}, FORWARD)")
+        print(f"  Generated {SMOOTH_TROT_STEPS} waypoints per leg (asymmetric, stance={SMOOTH_TROT_STANCE_RATIO}, FORWARD, lift={SMOOTH_TROT_LIFT_HEIGHT}mm)")
     elif current_gait_type == 'backward_trot':
         # Use asymmetric trajectory for smooth backward motion
         for leg_id in ['FR', 'FL', 'RR', 'RL']:
             mirror_x = leg_id in ['FR', 'RR']
             trajectories[leg_id] = generate_asymmetric_trajectory(
                 num_steps=SMOOTH_TROT_STEPS,
-                lift_height=GAIT_LIFT_HEIGHT,
+                lift_height=SMOOTH_TROT_LIFT_HEIGHT,
                 step_forward=GAIT_STEP_FORWARD,
                 stance_ratio=SMOOTH_TROT_STANCE_RATIO,
                 mirror_x=mirror_x,
                 reverse=True  # Backward motion
             )
-        print(f"  Generated {SMOOTH_TROT_STEPS} waypoints per leg (asymmetric, stance={SMOOTH_TROT_STANCE_RATIO}, BACKWARD)")
+        print(f"  Generated {SMOOTH_TROT_STEPS} waypoints per leg (asymmetric, stance={SMOOTH_TROT_STANCE_RATIO}, BACKWARD, lift={SMOOTH_TROT_LIFT_HEIGHT}mm)")
     else:
         # Use standard elliptical trajectory
         for leg_id in ['FR', 'FL', 'RR', 'RL']:
@@ -1929,7 +1948,7 @@ def main():
                         mirror_x = leg_id in ['FR', 'RR']
                         trajectories[leg_id] = generate_asymmetric_trajectory(
                             num_steps=SMOOTH_TROT_STEPS,
-                            lift_height=GAIT_LIFT_HEIGHT,
+                            lift_height=SMOOTH_TROT_LIFT_HEIGHT,
                             step_forward=GAIT_STEP_FORWARD,
                             stance_ratio=SMOOTH_TROT_STANCE_RATIO,
                             mirror_x=mirror_x,
@@ -1940,7 +1959,7 @@ def main():
                         mirror_x = leg_id in ['FR', 'RR']
                         trajectories[leg_id] = generate_asymmetric_trajectory(
                             num_steps=SMOOTH_TROT_STEPS,
-                            lift_height=GAIT_LIFT_HEIGHT,
+                            lift_height=SMOOTH_TROT_LIFT_HEIGHT,
                             step_forward=GAIT_STEP_FORWARD,
                             stance_ratio=SMOOTH_TROT_STANCE_RATIO,
                             mirror_x=mirror_x,
@@ -2054,12 +2073,24 @@ def main():
                     motor_a = leg_motors[leg_id]['A']
                     motor_b = leg_motors[leg_id]['B']
                     
-                    motor_a.set_position_direct(np.rad2deg(theta_A))
-                    motor_b.set_position_direct(np.rad2deg(theta_B))
+                    setpoint_a_deg = np.rad2deg(theta_A)
+                    setpoint_b_deg = np.rad2deg(theta_B)
                     
-                    # Read feedback
+                    # Send commands to both motors
+                    motor_a.set_position_direct(setpoint_a_deg)
+                    motor_b.set_position_direct(setpoint_b_deg)
+                    
+                    # Wait for feedback to arrive (motors respond asynchronously)
+                    time.sleep(0.002)  # 2ms wait for both feedback packets
+                    
+                    # Read feedback from both motors
                     feedback_a = motor_a.read_feedback()
                     feedback_b = motor_b.read_feedback()
+                    
+                    # Log all setpoints with feedback (or None if missing)
+                    if ENABLE_DATA_LOGGING:
+                        log_motor_feedback(feedback_a, setpoint_a_deg, motor_a.motor_id)
+                        log_motor_feedback(feedback_b, setpoint_b_deg, motor_b.motor_id)
                     
                     # Update actual angles
                     if feedback_a:
