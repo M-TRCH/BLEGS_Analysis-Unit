@@ -17,12 +17,24 @@ docs/
 ├── Phase3_Simulation/          # เอกสาร Phase 3: การจำลอง
 │   └── Phase3.1_Gait_Control_Simulation.tex
 │
+├── Phase4_Control/             # เอกสาร Phase 4: การควบคุม
+│   ├── Phase4.1_Controller_Design.tex
+│   └── Phase4.2_Hardware_Integration.tex
+│
+├── Phase5_Quadruped/           # เอกสาร Phase 5: หุ่นยนต์สี่ขา
+│   ├── Phase5.1_Quadruped_Scaling.tex
+│   └── Phase5.2_Gait_Tuning_Optimization.tex
+│
 ├── output/                     # ไฟล์ PDF ที่คอมไพล์แล้ว
 │   ├── Phase1.1_Forward_Kinematics_5Bar.pdf
 │   ├── Phase1.2_Inverse_Kinematics_Analytical.pdf
 │   ├── Phase2.1_Static_Torque_Analysis.pdf
 │   ├── Phase2.2_Dynamic_Torque_Analysis.pdf
 │   ├── Phase3.1_Gait_Control_Simulation.pdf
+│   ├── Phase4.1_Controller_Design.pdf
+│   ├── Phase4.2_Hardware_Integration.pdf
+│   ├── Phase5.1_Quadruped_Scaling.pdf
+│   ├── Phase5.2_Gait_Tuning_Optimization.pdf
 │   └── *.aux, *.log, *.out, *.toc (auxiliary files)
 │
 ├── figures/                    # รูปภาพสำหรับเอกสาร
@@ -63,6 +75,30 @@ docs/
 - **PDF:** [`output/Phase3.1_Gait_Control_Simulation.pdf`](output/Phase3.1_Gait_Control_Simulation.pdf)
 - **เนื้อหา:** การจำลองการควบคุมการเดินแบบ Trot Gait ด้วย PyBullet พร้อม Balance Control
 
+### Phase 4: Control & Implementation
+
+#### 4.1 Controller Design
+- **ไฟล์:** `Phase4.1_Controller_Design.tex`
+- **PDF:** [`output/Phase4.1_Controller_Design.pdf`](output/Phase4.1_Controller_Design.pdf)
+- **เนื้อหา:** การออกแบบระบบควบคุมตำแหน่งด้วย Direct Position Control และ S-Curve Motion Profiling
+
+#### 4.2 Hardware Integration
+- **ไฟล์:** `Phase4.2_Hardware_Integration.tex`
+- **PDF:** [`output/Phase4.2_Hardware_Integration.pdf`](output/Phase4.2_Hardware_Integration.pdf)
+- **เนื้อหา:** การบูรณาการฮาร์ดแวร์ Binary Protocol v1.1 และการทดสอบขาเดียว (Single Leg Testing)
+
+### Phase 5: Quadruped Scaling
+
+#### 5.1 Quadruped Scaling
+- **ไฟล์:** `Phase5.1_Quadruped_Scaling.tex`
+- **PDF:** [`output/Phase5.1_Quadruped_Scaling.pdf`](output/Phase5.1_Quadruped_Scaling.pdf)
+- **เนื้อหา:** การขยายระบบเป็นหุ่นยนต์สี่ขา Motor Indexing, Mirror Kinematics และ Multi-Leg Synchronization
+
+#### 5.2 Gait Tuning and Optimization
+- **ไฟล์:** `Phase5.2_Gait_Tuning_Optimization.tex`
+- **PDF:** [`output/Phase5.2_Gait_Tuning_Optimization.pdf`](output/Phase5.2_Gait_Tuning_Optimization.pdf)
+- **เนื้อหา:** การปรับจูนและพัฒนาหลายโหมดการเดิน (6 modes) พร้อม Asymmetric Trajectory Generation
+
 ## 🔧 การคอมไพล์เอกสาร
 
 ### ข้อกำหนด
@@ -102,10 +138,12 @@ Move-Item -Path "Phase*\*.aux,*.log,*.out,*.toc" -Destination "output\" -Force
 
 ## 📊 สถิติเอกสาร
 
-- **จำนวนเอกสาร:** 5 ไฟล์
+- **จำนวนเอกสาร:** 9 ไฟล์
 - **Phase 1:** 2 เอกสาร (Kinematics)
 - **Phase 2:** 2 เอกสาร (Dynamics)
 - **Phase 3:** 1 เอกสาร (Simulation)
+- **Phase 4:** 2 เอกสาร (Control & Implementation)
+- **Phase 5:** 2 เอกสาร (Quadruped Scaling)
 - **ภาษา:** ไทย/อังกฤษ (Bilingual)
 - **รูปแบบ:** Academic Paper Format
 
@@ -121,4 +159,4 @@ Move-Item -Path "Phase*\*.aux,*.log,*.out,*.toc" -Destination "output\" -Force
 
 ## 📅 อัพเดทล่าสุด
 
-8 ธันวาคม 2025 - เพิ่มเอกสาร Phase 3.1 Gait Control Simulation
+2 มกราคม 2026 - เพิ่มเอกสาร Phase 4 และ Phase 5 (Control, Hardware Integration และ Quadruped Scaling)
