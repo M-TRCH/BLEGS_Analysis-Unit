@@ -153,15 +153,15 @@ SINGLE_MOTOR_OSCILLATION = 30.0
 SINGLE_MOTOR_PERIOD = 0.6
  
 # --- Visualization Parameters ---
-ENABLE_VISUALIZATION = True
+ENABLE_VISUALIZATION = False
 PLOT_UPDATE_RATE = 10  # Hz
 
 # --- Simulation Mode ---
 SIMULATION_MODE = False  # Set to True to run without real motors
 
 # --- Data Logging Parameters ---
-ENABLE_DATA_LOGGING = True
-LOG_DIRECTORY = "logs"
+ENABLE_DATA_LOGGING = True  # Set to True to enable motor feedback logging
+LOG_DIRECTORY = "logs"  # Directory to store log files
 
 # ============================================================================
 # GLOBAL VARIABLES
@@ -395,6 +395,55 @@ class BinaryMotorController:
                 error_stats[motor_id] = error_stats.get(motor_id, 0) + 1
             return False
     
+    def set_position_scurve(self, angle_deg: float, duration_ms: int) -> bool:
+        """
+        Set target position using S-Curve profile
+        
+        Args:
+            angle_deg: Target angle in robot coordinate (degrees)
+            duration_ms: Movement duration in milliseconds
+            
+        Returns:
+            True if command sent successfully
+        """
+        if not self.is_connected:
+            return False
+        
+        try:
+            motor_angle = angle_deg * GEAR_RATIO
+            
+            with self.lock:
+                mode = bytes([ControlMode.MODE_SCURVE_PROFILE])
+                target_pos = struct.pack('<i', int(motor_angle * 100))
+                duration = struct.pack('<H', duration_ms)
+                payload = mode + target_pos + duration
+                
+                packet = build_packet(PacketType.PKT_CMD_SET_GOAL, payload)
+                self.serial.write(packet)
+                self.serial.flush()
+                self.stats_tx_count += 1
+                self.current_setpoint = angle_deg
+                
+                # Try to read feedback response (non-blocking)
+                time.sleep(0.001)  # 1ms wait for response
+                if self.serial.in_waiting >= 12:
+                    result = self._read_packet()
+                    if result:
+                        pkt_type, payload_data = result
+                        if pkt_type == PacketType.PKT_FB_STATUS and len(payload_data) >= 8:
+                            position_raw = struct.unpack('<i', payload_data[1:5])[0]
+                            current_raw = struct.unpack('<h', payload_data[5:7])[0]
+                            status_flags = payload_data[7]
+                            self.current_position = (position_raw / 100.0) / GEAR_RATIO
+                            self.current_current = current_raw
+                            self.current_flags = status_flags
+            
+            return True
+            
+        except Exception as e:
+            self.stats_errors += 1
+            return False
+    
     def send_emergency_stop(self) -> bool:
         """Send emergency stop command"""
         if not self.is_connected:
@@ -404,9 +453,69 @@ class BinaryMotorController:
             packet = build_packet(PacketType.PKT_CMD_EMERGENCY_STOP)
             self.serial.write(packet)
             self.serial.flush()
+            print(f"  ⚠️  Emergency stop sent to Motor ID {self.motor_id}")
             return True
         except:
             return False
+    
+    def read_feedback(self) -> dict:
+        """
+        Read motor feedback from binary protocol
+        Returns dictionary with feedback data or None
+        """
+        if not self.is_connected:
+            return None
+        
+        try:
+            if self.serial.in_waiting < 2:
+                return None
+            
+            result = self._read_packet()
+            if result:
+                pkt_type, payload = result
+                if pkt_type == PacketType.PKT_FB_STATUS and len(payload) >= 8:
+                    motor_id = payload[0]
+                    position_raw = struct.unpack('<i', payload[1:5])[0]
+                    current_raw = struct.unpack('<h', payload[5:7])[0]
+                    status_flags = payload[7]
+                    
+                    with self.lock:
+                        self.motor_id = motor_id
+                        self.current_position = (position_raw / 100.0) / GEAR_RATIO
+                        self.current_current = current_raw
+                        self.current_flags = status_flags
+                    
+                    feedback_data = {
+                        'motor_id': motor_id,
+                        'position': self.current_position,
+                        'current': current_raw,
+                        'flags': status_flags,
+                        'is_moving': bool(status_flags & StatusFlags.STATUS_MOVING),
+                        'at_goal': bool(status_flags & StatusFlags.STATUS_AT_GOAL),
+                        'error': bool(status_flags & StatusFlags.STATUS_ERROR),
+                        'emergency_stopped': bool(status_flags & StatusFlags.STATUS_EMERGENCY_STOPPED)
+                    }
+                    
+                    return feedback_data
+            return None
+            
+        except Exception as e:
+            return None
+    
+    def get_current_position(self):
+        """Get current position (thread-safe)"""
+        with self.lock:
+            return self.current_position
+    
+    def get_stats(self):
+        """Get communication statistics"""
+        return {
+            'motor_id': self.motor_id,
+            'tx': self.stats_tx_count,
+            'rx': self.stats_rx_count,
+            'errors': self.stats_errors,
+            'success_rate': (self.stats_rx_count / max(1, self.stats_tx_count)) * 100
+        }
 
 # ============================================================================
 # MOTOR DISCOVERY AND REGISTRATION
@@ -743,24 +852,99 @@ def initialize_data_logging():
     log_filename = os.path.join(LOG_DIRECTORY, f"motor_feedback_no_ef_{timestamp}.csv")
     
     try:
-        log_file = open(log_filename, 'w', newline='', buffering=1)
+        log_file = open(log_filename, 'w', newline='', buffering=1)  # Line buffering
         log_writer = csv.writer(log_file)
         
+        # Write header
         log_writer.writerow([
-            'timestamp', 'elapsed_ms', 'motor_id', 'setpoint_deg',
-            'position_deg', 'error_deg', 'current_mA', 'flags_hex'
+            'timestamp',
+            'elapsed_ms',
+            'motor_id',
+            'setpoint_deg',
+            'position_deg',
+            'error_deg',
+            'current_mA',
+            'flags_hex',
+            'is_moving',
+            'at_goal',
+            'error_flag',
+            'emergency_stopped'
         ])
-        log_file.flush()
+        log_file.flush()  # Ensure header is written immediately
         
         print(f"  📝 Data logging initialized: {log_filename}")
+        print(f"  ℹ️  Logging enabled = {ENABLE_DATA_LOGGING}")
+        print(f"  ℹ️  Log writer ready = {log_writer is not None}")
         return True
         
     except Exception as e:
         print(f"  ❌ Failed to initialize data logging: {e}")
         return False
 
+def log_motor_feedback(feedback_data, setpoint, motor_id=None):
+    """Log motor feedback data to CSV file
+    
+    Args:
+        feedback_data: Feedback dict or None if feedback failed
+        setpoint: Commanded position in degrees
+        motor_id: Motor ID (required if feedback_data is None)
+    """
+    global log_writer, log_file, log_record_count
+    
+    if not ENABLE_DATA_LOGGING or log_writer is None:
+        return
+    
+    try:
+        with log_lock:
+            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+            elapsed_ms = int((time.time() - log_start_time) * 1000)
+            
+            if feedback_data is not None:
+                # Normal case: feedback received
+                error_deg = setpoint - feedback_data['position']
+                
+                log_writer.writerow([
+                    timestamp,
+                    elapsed_ms,
+                    feedback_data['motor_id'],
+                    f"{setpoint:.2f}",
+                    f"{feedback_data['position']:.2f}",
+                    f"{error_deg:.2f}",
+                    feedback_data['current'],
+                    f"0x{feedback_data['flags']:02X}",
+                    1 if feedback_data.get('is_moving', False) else 0,
+                    1 if feedback_data.get('at_goal', False) else 0,
+                    1 if feedback_data.get('error', False) else 0,
+                    1 if feedback_data.get('emergency_stopped', False) else 0
+                ])
+                log_record_count += 1
+            else:
+                # Feedback missing: log setpoint with null feedback values
+                if motor_id is None:
+                    return  # Can't log without motor ID
+                
+                log_writer.writerow([
+                    timestamp,
+                    elapsed_ms,
+                    motor_id,
+                    f"{setpoint:.2f}",
+                    "NaN",  # position unavailable
+                    "NaN",  # error unavailable
+                    "0",    # current unavailable
+                    "0xFF", # flags invalid
+                    0, 0, 1, 0  # Mark as error condition
+                ])
+                log_record_count += 1
+            
+            # Flush every 50 records to ensure data is written
+            if hasattr(log_file, 'flush') and (log_record_count % 50) == 0:
+                log_file.flush()
+            
+    except Exception as e:
+        print(f"⚠️ Logging error: {e}")  # Debug: print errors
+
 def close_data_logging():
-    """Close log file"""
+    """Close log file and print summary"""
     global log_file, log_writer, log_record_count
     
     if not ENABLE_DATA_LOGGING or log_file is None:
@@ -769,13 +953,102 @@ def close_data_logging():
     try:
         with log_lock:
             if log_file:
-                log_file.flush()
+                log_file.flush()  # Final flush
                 log_file.close()
                 print(f"  📝 Data log file closed ({log_record_count} records written)")
                 log_file = None
                 log_writer = None
     except Exception as e:
         print(f"  ⚠️ Error closing log: {e}")
+
+def select_gait_mode():
+    """Allow user to select gait mode at startup"""
+    global current_gait_type
+    
+    print("\n" + "="*70)
+    print("  🚶 SELECT GAIT MODE")
+    print("="*70)
+    print("  Available gait modes:")
+    print("    [1] TROT         - Diagonal pairs, fast & efficient (100mm/s) ⚡")
+    print("    [2] SMOOTH TROT  - Diagonal pairs, balanced & stable (80mm/s) ✨")
+    print("    [3] BACKWARD     - Smooth reverse motion (80mm/s) ⏪")
+    print("    [4] WALK         - Sequential legs, slow & stable (50mm/s) 🐢")
+    print("    [5] CRAWL        - Very slow & stable, safe mode (25mm/s) 🐌")
+    print("    [6] STAND        - Static pose testing")
+    print("="*70)
+    
+    while True:
+        choice = input("  Select mode [1-6] (default: 1): ").strip()
+        
+        if choice == '' or choice == '1':
+            current_gait_type = 'trot'
+            print(f"  ✅ Selected: TROT gait (fast)")
+            break
+        elif choice == '2':
+            current_gait_type = 'smooth_trot'
+            print(f"  ✅ Selected: SMOOTH TROT gait (forward) ✨")
+            break
+        elif choice == '3':
+            current_gait_type = 'backward_trot'
+            print(f"  ✅ Selected: BACKWARD TROT gait (reverse) ⏪")
+            break
+        elif choice == '4':
+            current_gait_type = 'walk'
+            print(f"  ✅ Selected: WALK gait")
+            break
+        elif choice == '5':
+            current_gait_type = 'crawl'
+            print(f"  ✅ Selected: CRAWL gait")
+            break
+        elif choice == '6':
+            current_gait_type = 'stand'
+            print(f"  ✅ Selected: STAND mode")
+            break
+        else:
+            print("  ❌ Invalid choice. Please select 1, 2, 3, 4, 5, or 6.")
+    
+    return current_gait_type
+
+def change_gait_mode(new_mode):
+    """Change gait mode during runtime"""
+    global current_gait_type
+    
+    if new_mode in ['trot', 'smooth_trot', 'backward_trot', 'walk', 'crawl', 'stand']:
+        old_mode = current_gait_type
+        current_gait_type = new_mode
+        mode_names = {
+            'trot': 'TROT ⚡', 
+            'smooth_trot': 'SMOOTH TROT ✨',
+            'backward_trot': 'BACKWARD ⏪',
+            'walk': 'WALK 🐢', 
+            'crawl': 'CRAWL 🐌', 
+            'stand': 'STAND 🧍'
+        }
+        print(f"\n🔄 Gait mode changed: {mode_names.get(old_mode, old_mode)} → {mode_names.get(new_mode, new_mode)}")
+        return True
+    return False
+
+def reset_error_stats():
+    """Reset all error statistics"""
+    global error_stats
+    with error_lock:
+        error_stats.clear()
+    print("\n🔄 Error statistics reset!")
+
+def check_keyboard_input():
+    """
+    Check for keyboard input (non-blocking)
+    Returns the key pressed or None
+    """
+    if sys.platform == 'win32':
+        if msvcrt.kbhit():
+            key = msvcrt.getch()
+            # Handle special keys
+            if key == b'\xe0' or key == b'\x00':
+                msvcrt.getch()  # Consume the second byte
+                return None
+            return key.decode('utf-8', errors='ignore').lower()
+    return None
 
 # ============================================================================
 # VISUALIZATION
@@ -878,11 +1151,8 @@ def visualization_thread():
     }
     
     # Add control instructions
-    control_text = 'Controls: [SPACE] Start/Stop'
-    if SIMULATION_MODE:
-        control_text += ' | SIMULATION MODE - No real motors'
-    fig.text(0.5, 0.02, control_text, 
-             ha='center', fontsize=10, family='monospace',
+    fig.text(0.5, 0.02, 'Controls: [SPACE] Start/Stop  |  [1/T] Trot  |  [2/M] Smooth  |  [3/B] Back  |  [4/W] Walk  |  [5/C] Crawl  |  [6/S] Stand  |  [R] Reset  |  [E] E-Stop', 
+             ha='center', fontsize=8.5, family='monospace',
              bbox=dict(boxstyle='round', facecolor='lightblue', alpha=0.8))
     
     def update_plot(frame):
@@ -901,6 +1171,22 @@ def visualization_thread():
     def on_key_press(event):
         if event.key == ' ':
             toggle_gait_control()
+        elif event.key == 'r' or event.key == 'R':
+            reset_error_stats()
+        elif event.key == 'e' or event.key == 'E':
+            emergency_stop_all()
+        elif event.key == '1' or event.key == 't' or event.key == 'T':
+            change_gait_mode('trot')
+        elif event.key == '2' or event.key == 'm' or event.key == 'M':
+            change_gait_mode('smooth_trot')
+        elif event.key == '3' or event.key == 'b' or event.key == 'B':
+            change_gait_mode('backward_trot')
+        elif event.key == '4' or event.key == 'w' or event.key == 'W':
+            change_gait_mode('walk')
+        elif event.key == '5' or event.key == 'c' or event.key == 'C':
+            change_gait_mode('crawl')
+        elif event.key == '6' or event.key == 's' or event.key == 'S':
+            change_gait_mode('stand')
     
     fig.canvas.mpl_connect('key_press_event', on_key_press)
     
@@ -916,58 +1202,62 @@ def visualization_thread():
 # GAIT CONTROL LOOP
 # ============================================================================
 
-def gait_control_loop():
+def gait_control_loop(trajectories, prev_solutions):
     """Main gait control loop"""
-    global gait_running, gait_paused, leg_states, log_start_time
+    global gait_running, gait_paused, leg_states, log_start_time, current_gait_type
     
-    print("\n" + "="*70)
-    print("  🚶 GAIT CONTROL LOOP (No EF Link)")
-    print("="*70)
-    print(f"  Mode: {current_gait_type.upper()}")
-    print(f"  Update Rate: {UPDATE_RATE} Hz")
-    print(f"  Control Mode: DIRECT_POSITION")
-    print(f"  NOTE: Joint E is the foot (no EF link)")
-    print("="*70)
-    
-    # Generate trajectories
-    trajectories = {}
-    for leg_id in ['FR', 'FL', 'RR', 'RL']:
-        mirror_x = (leg_id in ['FR', 'RR'])
-        reverse = (current_gait_type == 'backward_trot')
-        
-        trajectories[leg_id] = generate_elliptical_trajectory(
-            step_forward=GAIT_STEP_FORWARD,
-            lift_height=GAIT_LIFT_HEIGHT,
-            num_steps=TRAJECTORY_STEPS,
-            stance_ratio=0.5,
-            reverse=reverse,
-            mirror_x=mirror_x
-        )
-    
-    # Initialize previous solutions for smooth IK
-    prev_solutions = {}
-    for leg_id in ['FR', 'FL', 'RR', 'RL']:
-        home_pos = np.array([DEFAULT_STANCE_OFFSET_X, DEFAULT_STANCE_HEIGHT])
-        P_A, P_B = get_motor_positions(leg_id)
-        home_angles = calculate_ik_no_ef(home_pos, P_A, P_B, elbow_C_down=True, elbow_D_down=True)
-        
-        if not np.isnan(home_angles).any():
-            prev_solutions[leg_id] = home_angles
-        else:
-            prev_solutions[leg_id] = None
-    
-    log_start_time = time.time()
     frame = 0
     cycle_count = 0
-    
-    print("\n⏸️  Gait ready - Press SPACE to start")
+    last_gait_type = current_gait_type  # Track gait mode changes
     
     while gait_running:
+        # Regenerate trajectories if gait mode changed
+        if current_gait_type != last_gait_type:
+            print(f"\n🔄 Regenerating trajectories for {current_gait_type.upper()} mode...")
+            if current_gait_type == 'smooth_trot':
+                for leg_id in ['FR', 'FL', 'RR', 'RL']:
+                    mirror_x = leg_id in ['FR', 'RR']
+                    trajectories[leg_id] = generate_elliptical_trajectory(
+                        step_forward=GAIT_STEP_FORWARD,
+                        lift_height=SMOOTH_TROT_LIFT_HEIGHT,
+                        num_steps=SMOOTH_TROT_STEPS,
+                        stance_ratio=SMOOTH_TROT_STANCE_RATIO,
+                        reverse=False,
+                        mirror_x=mirror_x
+                    )
+            elif current_gait_type == 'backward_trot':
+                for leg_id in ['FR', 'FL', 'RR', 'RL']:
+                    mirror_x = leg_id in ['FR', 'RR']
+                    trajectories[leg_id] = generate_elliptical_trajectory(
+                        step_forward=GAIT_STEP_FORWARD,
+                        lift_height=SMOOTH_TROT_LIFT_HEIGHT,
+                        num_steps=SMOOTH_TROT_STEPS,
+                        stance_ratio=SMOOTH_TROT_STANCE_RATIO,
+                        reverse=True,
+                        mirror_x=mirror_x
+                    )
+            else:
+                for leg_id in ['FR', 'FL', 'RR', 'RL']:
+                    mirror_x = leg_id in ['FR', 'RR']
+                    trajectories[leg_id] = generate_elliptical_trajectory(
+                        step_forward=GAIT_STEP_FORWARD,
+                        lift_height=GAIT_LIFT_HEIGHT,
+                        num_steps=TRAJECTORY_STEPS,
+                        stance_ratio=0.5,
+                        reverse=False,
+                        mirror_x=mirror_x
+                    )
+            last_gait_type = current_gait_type
+            frame = 0  # Reset frame counter
+        
         if gait_paused:
             time.sleep(0.05)
             continue
         
         loop_start = time.perf_counter()
+        
+        # Get trajectory length based on current gait
+        traj_len = SMOOTH_TROT_STEPS if current_gait_type in ['smooth_trot', 'backward_trot'] else TRAJECTORY_STEPS
         
         # Update each leg
         for leg_id in ['FR', 'FL', 'RR', 'RL']:
@@ -977,7 +1267,7 @@ def gait_control_loop():
             
             # Calculate current phase
             phase_offset = get_gait_phase_offset(leg_id)
-            current_phase = (frame + int(phase_offset * TRAJECTORY_STEPS)) % TRAJECTORY_STEPS
+            current_phase = (frame + int(phase_offset * traj_len)) % traj_len
             
             # Get target position from trajectory
             px, py = trajectories[leg_id][current_phase]
@@ -1020,27 +1310,51 @@ def gait_control_loop():
                 prev_solutions[leg_id] = best_solution
                 theta_A, theta_B = best_solution
                 
-                # Send to motors (only in real mode)
-                if not SIMULATION_MODE:
-                    motor_a = leg_motors[leg_id]['A']
-                    motor_b = leg_motors[leg_id]['B']
-                    
-                    motor_a.set_position_direct(np.rad2deg(theta_A))
-                    motor_b.set_position_direct(np.rad2deg(theta_B))
-                
                 # Update visualization state
                 with viz_lock:
                     leg_states[leg_id]['target_angles'] = [theta_A, theta_B]
                     leg_states[leg_id]['target_pos'] = [px, py]
                     leg_states[leg_id]['phase'] = current_phase
+                
+                # Send to motors (only in real mode)
+                if not SIMULATION_MODE:
+                    motor_a = leg_motors[leg_id]['A']
+                    motor_b = leg_motors[leg_id]['B']
+                    
+                    setpoint_a_deg = np.rad2deg(theta_A)
+                    setpoint_b_deg = np.rad2deg(theta_B)
+                    
+                    motor_a.set_position_direct(setpoint_a_deg)
+                    motor_b.set_position_direct(setpoint_b_deg)
+                    
+                    # Wait for feedback to arrive (motors respond asynchronously)
+                    time.sleep(0.002)  # 2ms wait for both feedback packets
+                    
+                    # Read feedback from both motors
+                    feedback_a = motor_a.read_feedback() if hasattr(motor_a, 'read_feedback') else None
+                    feedback_b = motor_b.read_feedback() if hasattr(motor_b, 'read_feedback') else None
+                    
+                    # Log all setpoints with feedback (or None if missing)
+                    if ENABLE_DATA_LOGGING:
+                        log_motor_feedback(feedback_a, setpoint_a_deg, motor_a.motor_id)
+                        log_motor_feedback(feedback_b, setpoint_b_deg, motor_b.motor_id)
+                    
+                    # Update actual angles
+                    if feedback_a:
+                        with viz_lock:
+                            leg_states[leg_id]['actual_angles'][0] = np.deg2rad(feedback_a['position'])
+                    
+                    if feedback_b:
+                        with viz_lock:
+                            leg_states[leg_id]['actual_angles'][1] = np.deg2rad(feedback_b['position'])
         
         # Update frame counter
-        frame = (frame + 1) % TRAJECTORY_STEPS
+        frame = (frame + 1) % traj_len
         
         if frame == 0:
             cycle_count += 1
-            if cycle_count % 10 == 0:
-                print(f"  Cycle #{cycle_count}")
+            if cycle_count % 5 == 0:
+                print(f"  🔄 Gait Cycle #{cycle_count}")
         
         # Timing control
         elapsed = time.perf_counter() - loop_start
@@ -1056,7 +1370,7 @@ def gait_control_loop():
 
 def keyboard_input_thread():
     """Thread for handling keyboard input"""
-    global gait_running
+    global gait_running, gait_paused
     
     print("\n" + "="*70)
     print("  ⌨️  KEYBOARD CONTROLS")
@@ -1064,10 +1378,13 @@ def keyboard_input_thread():
     if SIMULATION_MODE:
         print("  Use visualization window:")
         print("  [SPACE]  - Start/Pause gait (press in plot window)")
+        print("  [1/T] Trot, [2/M] Smooth, [3/B] Back, [4/W] Walk, [5/C] Crawl, [6/S] Stand")
         print("  [Q]      - Quit (type here and press Enter)")
     else:
         print("  [SPACE]  - Start/Pause gait")
+        print("  [1/T] Trot, [2/M] Smooth, [3/B] Back, [4/W] Walk, [5/C] Crawl, [6/S] Stand")
         print("  [E]      - Emergency stop all motors")
+        print("  [R]      - Reset error statistics")
         print("  [Q]      - Quit program")
     print("="*70)
     
@@ -1085,17 +1402,33 @@ def keyboard_input_thread():
     else:
         # Real mode with keyboard monitoring
         while gait_running:
-            if sys.platform == 'win32' and msvcrt.kbhit():
-                key = msvcrt.getch()
-                
-                if key == b' ':
+            key = check_keyboard_input()
+            if key:
+                if key == ' ':
                     toggle_gait_control()
-                elif key.lower() == b'e':
+                elif key == 'e':
                     emergency_stop_all()
-                elif key.lower() == b'q':
+                    with control_lock:
+                        gait_paused = True
+                    print("\n⚠️  Emergency stop activated!")
+                elif key == 'r':
+                    reset_error_stats()
+                elif key == 'q':
                     print("\n👋 Quitting...")
                     gait_running = False
                     break
+                elif key == '1' or key == 't':
+                    change_gait_mode('trot')
+                elif key == '2' or key == 'm':
+                    change_gait_mode('smooth_trot')
+                elif key == '3' or key == 'b':
+                    change_gait_mode('backward_trot')
+                elif key == '4' or key == 'w':
+                    change_gait_mode('walk')
+                elif key == '5' or key == 'c':
+                    change_gait_mode('crawl')
+                elif key == '6' or key == 's':
+                    change_gait_mode('stand')
             
             time.sleep(0.05)
 
@@ -1104,18 +1437,31 @@ def keyboard_input_thread():
 # ============================================================================
 
 def main():
-    global gait_running, gait_paused, motor_registry, leg_motors
+    global gait_running, gait_paused, motor_registry, leg_motors, plot_running, log_start_time
     
     print("="*70)
     print("  BLEGS Quadruped Gait Control - No EF Link Version")
     print("="*70)
+    print(f"  Number of Legs: 4 (FR, FL, RR, RL)")
+    print(f"  Total Motors: 8")
     print(f"  Protocol: Binary Protocol v1.2")
     print(f"  Baud Rate: {BAUD_RATE}")
     print(f"  Link Configuration: AC={L_AC}mm, BD={L_BD}mm, CE={L_CE}mm, DE={L_DE}mm")
     print(f"  NOTE: Joint E is the FOOT (no EF link)")
+    
+    # Let user select gait mode
+    select_gait_mode()
+    print(f"  Gait Type: {current_gait_type.upper()}")
+    
+    print(f"  Control Mode: {'S-Curve' if CONTROL_MODE == ControlMode.MODE_SCURVE_PROFILE else 'Direct'}")
+    print(f"  Update Rate: {UPDATE_RATE} Hz")
+    print(f"  Gear Ratio: {GEAR_RATIO}:1")
+    print(f"  Motor Init Angle: {MOTOR_INIT_ANGLE}° (robot)")
+    print(f"  Home Position: ({DEFAULT_STANCE_OFFSET_X}, {DEFAULT_STANCE_HEIGHT}) mm")
+    print(f"  Visualization: {'Enabled' if ENABLE_VISUALIZATION else 'Disabled'}")
     print("="*70)
     
-    # Discover motors
+    # --- Step 1: Motor Discovery ---
     discovered = discover_motors()
     
     if len(discovered) == 0 and not SIMULATION_MODE:
@@ -1123,20 +1469,26 @@ def main():
         return
     
     if not SIMULATION_MODE:
-        # Register motors to legs
+        # --- Step 2: Motor Registration ---
         all_assigned = register_leg_motors(discovered)
         
         if not all_assigned:
-            print("\n⚠️  Warning: Not all motors assigned to legs")
-            response = input("  Continue anyway? [y/N]: ")
-            if response.lower() != 'y':
-                print("\n👋 Exiting...")
+            print("\n⚠️  Not all motors were found.")
+            user_input = input("  Continue with available motors? (y/n): ").strip().lower()
+            if user_input != 'y':
+                print("\n  Aborting...")
+                for controller in discovered.values():
+                    controller.disconnect()
                 return
         
-        # Start motors
-        if not start_all_motors():
-            print("\n❌ Failed to start some motors. Exiting.")
+        if not leg_motors:
+            print("\n❌ No complete leg pairs found. Cannot continue.")
+            for controller in discovered.values():
+                controller.disconnect()
             return
+        
+        # --- Step 3: Start All Motors ---
+        start_all_motors()
     else:
         print("\n" + "="*70)
         print("  🎮 SIMULATION MODE ACTIVATED")
@@ -1145,20 +1497,125 @@ def main():
         print("  Visualization will show leg movements")
         print("="*70)
     
-    # Initialize data logging
+    # --- Step 3.5: Initialize Data Logging ---
     if ENABLE_DATA_LOGGING:
+        print("\n📝 Initializing data logging...")
+        log_start_time = time.time()
         initialize_data_logging()
+    
+    # --- Step 4: Start Visualization ---
+    viz_thread = None
+    if ENABLE_VISUALIZATION:
+        print("\n📊 Starting real-time visualization...")
+        viz_thread = threading.Thread(target=visualization_thread, daemon=True)
+        viz_thread.start()
+        time.sleep(1.0)
+        print("  Visualization started!")
+    
+    # --- Step 5: Generate Trajectories ---
+    print(f"\n🚶 Generating walking trajectories...")
+    trajectories = {}
+    
+    # Select trajectory generator based on gait type
+    if current_gait_type == 'smooth_trot':
+        for leg_id in ['FR', 'FL', 'RR', 'RL']:
+            mirror_x = leg_id in ['FR', 'RR']
+            trajectories[leg_id] = generate_elliptical_trajectory(
+                step_forward=GAIT_STEP_FORWARD,
+                lift_height=SMOOTH_TROT_LIFT_HEIGHT,
+                num_steps=SMOOTH_TROT_STEPS,
+                stance_ratio=SMOOTH_TROT_STANCE_RATIO,
+                reverse=False,
+                mirror_x=mirror_x
+            )
+        print(f"  Generated {SMOOTH_TROT_STEPS} waypoints per leg (asymmetric, stance={SMOOTH_TROT_STANCE_RATIO}, FORWARD, lift={SMOOTH_TROT_LIFT_HEIGHT}mm)")
+    elif current_gait_type == 'backward_trot':
+        for leg_id in ['FR', 'FL', 'RR', 'RL']:
+            mirror_x = leg_id in ['FR', 'RR']
+            trajectories[leg_id] = generate_elliptical_trajectory(
+                step_forward=GAIT_STEP_FORWARD,
+                lift_height=SMOOTH_TROT_LIFT_HEIGHT,
+                num_steps=SMOOTH_TROT_STEPS,
+                stance_ratio=SMOOTH_TROT_STANCE_RATIO,
+                reverse=True,
+                mirror_x=mirror_x
+            )
+        print(f"  Generated {SMOOTH_TROT_STEPS} waypoints per leg (asymmetric, stance={SMOOTH_TROT_STANCE_RATIO}, BACKWARD, lift={SMOOTH_TROT_LIFT_HEIGHT}mm)")
+    else:
+        for leg_id in ['FR', 'FL', 'RR', 'RL']:
+            mirror_x = leg_id in ['FR', 'RR']
+            trajectories[leg_id] = generate_elliptical_trajectory(
+                step_forward=GAIT_STEP_FORWARD,
+                lift_height=GAIT_LIFT_HEIGHT,
+                num_steps=TRAJECTORY_STEPS,
+                stance_ratio=0.5,
+                reverse=False,
+                mirror_x=mirror_x
+            )
+        print(f"  Generated {TRAJECTORY_STEPS} waypoints per leg (elliptical)")
+    
+    # --- Step 6: Initialize Home Position ---
+    print(f"\n🏠 Moving to home position...")
+    print(f"  Note: Motors start at {MOTOR_INIT_ANGLE}° (robot angle)")
+    prev_solutions = {}
+    
+    for leg_id in (leg_motors.keys() if not SIMULATION_MODE else ['FR', 'FL', 'RR', 'RL']):
+        home_pos = np.array([DEFAULT_STANCE_OFFSET_X, DEFAULT_STANCE_HEIGHT])
+        P_A, P_B = get_motor_positions(leg_id)
+        home_angles = calculate_ik_no_ef(home_pos, P_A, P_B, elbow_C_down=True, elbow_D_down=True)
+        
+        if not np.isnan(home_angles).any():
+            prev_solutions[leg_id] = home_angles
+            
+            # Calculate movement from init angle
+            init_angle_A = MOTOR_INIT_ANGLE
+            init_angle_B = MOTOR_INIT_ANGLE
+            target_angle_A = np.rad2deg(home_angles[0])
+            target_angle_B = np.rad2deg(home_angles[1])
+            
+            delta_A = target_angle_A - init_angle_A
+            delta_B = target_angle_B - init_angle_B
+            
+            with viz_lock:
+                leg_states[leg_id]['target_angles'] = home_angles.tolist()
+                leg_states[leg_id]['target_pos'] = home_pos.tolist()
+            
+            # Send S-Curve command for smooth home movement (3 seconds for safety)
+            if not SIMULATION_MODE:
+                motor_a = leg_motors[leg_id]['A']
+                motor_b = leg_motors[leg_id]['B']
+                motor_a.set_position_scurve(target_angle_A, 3000)
+                motor_b.set_position_scurve(target_angle_B, 3000)
+            
+            print(f"    {leg_id}: θA={target_angle_A:+.1f}° (Δ{delta_A:+.1f}°), θB={target_angle_B:+.1f}° (Δ{delta_B:+.1f}°)")
+        else:
+            print(f"    {leg_id}: IK FAILED for home position!")
+            prev_solutions[leg_id] = None
+    
+    if not SIMULATION_MODE:
+        print(f"\n  ⏳ Moving to home position (3 seconds)...")
+        time.sleep(3.5)  # Wait for home position (3s movement + margin)
+    
+    # --- Step 7: Main Gait Loop ---
+    print(f"\n⏸️  Gait control ready (PAUSED) - Mode: {current_gait_type.upper()}")
+    if ENABLE_VISUALIZATION:
+        print("  Press [SPACE] in visualization window to start")
+        print("  Press [1/T] Trot, [2/M] Smooth, [3/B] Back, [4/W] Walk, [5/C] Crawl, [6/S] Stand")
+    else:
+        print("  Press [SPACE] to start/pause")
+        print("  Press [1/T] Trot, [2/M] Smooth, [3/B] Back, [4/W] Walk, [5/C] Crawl, [6/S] Stand")
+    print("  Press [E] for emergency stop")
+    if not ENABLE_VISUALIZATION:
+        print("  Press [Q] to quit")
+    else:
+        print("  Press Ctrl+C to exit")
+    print("="*70)
     
     # Start gait control
     gait_running = True
     
-    gait_thread = threading.Thread(target=gait_control_loop, daemon=True)
+    gait_thread = threading.Thread(target=gait_control_loop, args=(trajectories, prev_solutions), daemon=True)
     gait_thread.start()
-    
-    # Start visualization if enabled
-    if ENABLE_VISUALIZATION:
-        viz_thread = threading.Thread(target=visualization_thread, daemon=True)
-        viz_thread.start()
     
     # Start keyboard input handler
     try:
@@ -1175,21 +1632,43 @@ def main():
     print("  🛑 SHUTTING DOWN")
     print("="*70)
     
+    # Return to init position (-90°)
+    if not SIMULATION_MODE:
+        print("\n🏠 Returning to init position (-90°)...")
+        try:
+            for leg_id in leg_motors.keys():
+                motor_a = leg_motors[leg_id]['A']
+                motor_b = leg_motors[leg_id]['B']
+                motor_a.set_position_scurve(MOTOR_INIT_ANGLE, 3000)
+                motor_b.set_position_scurve(MOTOR_INIT_ANGLE, 3000)
+            time.sleep(3.5)
+        except:
+            pass
+    
     # Close data logging
-    if ENABLE_DATA_LOGGING and not SIMULATION_MODE:
+    if ENABLE_DATA_LOGGING:
         close_data_logging()
+    
+    # Print statistics
+    if not SIMULATION_MODE:
+        print("\n📊 Communication Statistics:")
+        for motor_id, controller in motor_registry.items():
+            stats = controller.get_stats()
+            print(f"    Motor {motor_id}: TX={stats['tx']}, RX={stats['rx']}, "
+                  f"Errors={stats['errors']}, Success={stats['success_rate']:.1f}%")
     
     # Disconnect motors (only in real mode)
     if not SIMULATION_MODE:
-        print("  Disconnecting motors...")
-        for motor_id, controller in motor_registry.items():
+        print("\n🔌 Disconnecting motors...")
+        for controller in motor_registry.values():
             controller.disconnect()
     
     if ENABLE_VISUALIZATION:
-        print("  Closing visualization...")
+        print("\n📊 Closing visualization...")
         plt.close('all')
+        time.sleep(1.0)
     
-    print("\n✅ Program terminated successfully")
+    print("\n✅ Quadruped gait control terminated successfully")
     print("="*70)
 
 if __name__ == "__main__":
