@@ -12,7 +12,7 @@ detector = cv2.aruco.ArucoDetector(aruco_dict, aruco_params)
 # --- 2. ตั้งค่าขนาด Marker (สำคัญมาก!) ---
 # วัดขนาดจริงของ Marker ที่คุณ "พิมพ์" ออกมา (วัดเฉพาะส่วนสีดำ)
 # หน่วยเป็น "เมตร"
-MARKER_SIZE_METERS = 0.039  # 39 มิลลิเมตร = 0.039 เมตร
+MARKER_SIZE_METERS = 0.024  # 24 มิลลิเมตร = 0.024 เมตร
 
 # --- 3. โหลด Camera Calibration Parameters ---
 # ใช้ path แบบ absolute หรือ relative จากตำแหน่งสคริปต์
