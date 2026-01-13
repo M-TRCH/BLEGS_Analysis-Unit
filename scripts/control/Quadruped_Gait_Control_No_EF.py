@@ -139,6 +139,108 @@ UPDATE_RATE = 50  # Hz (20ms per update)
 
 TRAJECTORY_STEPS = 20  # Number of steps in one gait cycle
 
+# ============================================================================
+# GAIT CONFIGURATIONS
+# ============================================================================
+# Phase offset: when swing phase starts (0-1)
+# Duty factor: fraction of cycle in stance phase (higher = more stable)
+# Leg mapping: FL=Front Left, FR=Front Right, RL=Rear Left, RR=Rear Right
+
+GAIT_CONFIGS = {
+    'crawl': {
+        'name': 'CRAWL',
+        'description': 'One leg at a time, very stable',
+        'emoji': '🐌',
+        'phases': {'FL': 0.0, 'RR': 0.25, 'FR': 0.5, 'RL': 0.75},
+        'duty_factor': 0.75,  # 75% stance, 25% swing
+        'num_steps': 40,
+        'lift_height': 20.0,
+        'step_length': 30.0,
+        'speed_desc': '25mm/s'
+    },
+    'trot': {
+        'name': 'TROT',
+        'description': 'Diagonal pairs, fast & efficient',
+        'emoji': '⚡',
+        'phases': {'FL': 0.5, 'RR': 0.5, 'FR': 0.0, 'RL': 0.0},
+        'duty_factor': 0.5,  # 50% stance, 50% swing
+        'num_steps': 20,
+        'lift_height': 15.0,
+        'step_length': 50.0,
+        'speed_desc': '100mm/s'
+    },
+    'trot_opt': {
+        'name': 'TROT OPT',
+        'description': 'Optimized trot, high lift, fast swing',
+        'emoji': '🚀',
+        'phases': {'FL': 0.5, 'RR': 0.5, 'FR': 0.0, 'RL': 0.0},
+        'duty_factor': 0.35,  # 35% stance, 65% swing
+        'num_steps': 30,      # More steps for smooth high-lift
+        'lift_height': 25.0,  # Higher lift
+        'step_length': 55.0,  # Slightly longer stride
+        'speed_desc': '130mm/s',
+        'smooth_factor': 0.6  # Smooth high-speed motion
+    },
+    'pace': {
+        'name': 'PACE',
+        'description': 'Same-side legs together',
+        'emoji': '🦒',
+        'phases': {'FL': 0.0, 'RL': 0.0, 'FR': 0.5, 'RR': 0.5},
+        'duty_factor': 0.5,
+        'num_steps': 25,
+        'lift_height': 15.0,
+        'step_length': 45.0,
+        'speed_desc': '80mm/s'
+    },
+    'bound': {
+        'name': 'BOUND',
+        'description': 'Front legs together, hind legs together',
+        'emoji': '🐇',
+        'phases': {'FL': 0.0, 'FR': 0.0, 'RL': 0.5, 'RR': 0.5},
+        'duty_factor': 0.50,  # 50% stance - more stable
+        'num_steps': 40,      # More steps for smoothness
+        'lift_height': 18.0,  # Lower lift for gentler motion
+        'step_length': 50.0,
+        'speed_desc': '100mm/s',
+        'smooth_factor': 0.8  # Extra smoothing (0-1)
+    },
+    'pronk': {
+        'name': 'PRONK',
+        'description': 'All legs together (hopping)',
+        'emoji': '🦘',
+        'phases': {'FL': 0.0, 'FR': 0.0, 'RL': 0.0, 'RR': 0.0},
+        'duty_factor': 0.45,  # 45% stance - smoother landing
+        'num_steps': 50,      # Many steps for smooth hop
+        'lift_height': 20.0,  # Moderate lift
+        'step_length': 30.0,
+        'speed_desc': '60mm/s',
+        'smooth_factor': 0.9  # Maximum smoothing
+    },
+    'gallop': {
+        'name': 'GALLOP',
+        'description': 'Asymmetric running gait',
+        'emoji': '🐎',
+        'phases': {'FL': 0.0, 'FR': 0.1, 'RL': 0.5, 'RR': 0.6},
+        'duty_factor': 0.45,  # 45% stance - smoother
+        'num_steps': 40,      # More steps for fluidity
+        'lift_height': 18.0,  # Lower lift
+        'step_length': 55.0,
+        'speed_desc': '120mm/s',
+        'smooth_factor': 0.7  # Good smoothing
+    },
+    'stand': {
+        'name': 'STAND',
+        'description': 'Static pose testing',
+        'emoji': '🧍',
+        'phases': {'FL': 0.0, 'FR': 0.0, 'RL': 0.0, 'RR': 0.0},
+        'duty_factor': 1.0,  # Always in stance
+        'num_steps': 1,
+        'lift_height': 0.0,
+        'step_length': 0.0,
+        'speed_desc': '0mm/s'
+    }
+}
+
 # Gait Types
 DEFAULT_GAIT_TYPE = 'trot'
 current_gait_type = DEFAULT_GAIT_TYPE
@@ -766,34 +868,73 @@ def calculate_fk_no_ef(theta_A, theta_B, P_A, P_B):
 # TRAJECTORY GENERATION
 # ============================================================================
 
+def smooth_step(t, smooth_factor=0.5):
+    """
+    Apply smoothstep easing function for gentle acceleration/deceleration
+    t: input value 0-1
+    smooth_factor: 0 = linear, 1 = maximum smoothing (quintic)
+    """
+    if smooth_factor <= 0:
+        return t
+    elif smooth_factor >= 1:
+        # Quintic smoothstep (very smooth)
+        return t * t * t * (t * (t * 6 - 15) + 10)
+    else:
+        # Blend between linear and cubic smoothstep
+        cubic = t * t * (3 - 2 * t)
+        return t * (1 - smooth_factor) + cubic * smooth_factor
+
+
 def generate_elliptical_trajectory(step_forward, lift_height, num_steps, stance_ratio=0.5, 
                                    home_x=0.0, home_y=DEFAULT_STANCE_HEIGHT, 
-                                   reverse=False, mirror_x=False):
-    """Generate elliptical foot trajectory"""
+                                   reverse=False, mirror_x=False, smooth_factor=0.5):
+    """
+    Generate smooth elliptical foot trajectory with easing
+    
+    Args:
+        step_forward: Forward step length (mm)
+        lift_height: Maximum foot lift height (mm)
+        num_steps: Number of trajectory waypoints
+        stance_ratio: Fraction of cycle in stance phase (duty factor)
+        home_x, home_y: Home position
+        reverse: True for backward motion
+        mirror_x: True for right-side legs
+        smooth_factor: 0-1, higher = smoother transitions
+    """
     trajectory = []
     
-    swing_steps = int(num_steps * (1.0 - stance_ratio))
-    stance_steps = num_steps - swing_steps
+    swing_steps = max(1, int(num_steps * (1.0 - stance_ratio)))
+    stance_steps = max(1, num_steps - swing_steps)
     
     direction = -1 if reverse else 1
     
     for i in range(num_steps):
         if i < swing_steps:
-            phase_progress = i / swing_steps
+            # Swing phase - apply smoothstep for gentle takeoff/landing
+            raw_progress = i / swing_steps
+            phase_progress = smooth_step(raw_progress, smooth_factor)
             t = np.pi + np.pi * phase_progress  # π to 2π
+            
+            # Smooth height profile using raised cosine (gentler than sin)
+            height_progress = smooth_step(raw_progress, smooth_factor)
+            # Bell curve for height: peaks in middle, gentle at ends
+            height_factor = np.sin(np.pi * height_progress)
+            # Apply additional smoothing to height
+            height_factor = height_factor ** (1 + smooth_factor * 0.5)
+            
+            py = home_y + lift_height * height_factor
         else:
+            # Stance phase - smooth ground contact
             stance_index = i - swing_steps
-            phase_progress = stance_index / stance_steps
+            raw_progress = stance_index / stance_steps
+            phase_progress = smooth_step(raw_progress, smooth_factor * 0.3)  # Less smoothing on ground
             t = np.pi * phase_progress  # 0 to π
+            
+            py = home_y  # Flat on ground
         
         px = direction * (-step_forward * np.cos(t))
         if mirror_x:
             px = -px
-        
-        if i < swing_steps:  # Swing phase
-            py = home_y + lift_height * abs(np.sin(t))
-        else:  # Stance phase
-            py = home_y
         
         trajectory.append((px + home_x, py))
     
@@ -803,16 +944,43 @@ def get_gait_phase_offset(leg_id):
     """Get phase offset for each leg based on current gait type"""
     global current_gait_type
     
-    if current_gait_type in ['trot', 'smooth_trot', 'backward_trot']:
-        offsets = {'FR': 0.0, 'FL': 0.5, 'RR': 0.5, 'RL': 0.0}
-        return offsets[leg_id]
-    elif current_gait_type in ['walk', 'crawl']:
-        offsets = {'FR': 0.0, 'RR': 0.25, 'FL': 0.5, 'RL': 0.75}
-        return offsets[leg_id]
-    elif current_gait_type == 'stand':
-        return 0.0
+    if current_gait_type in GAIT_CONFIGS:
+        return GAIT_CONFIGS[current_gait_type]['phases'].get(leg_id, 0.0)
     
-    return 0.0
+    # Fallback to trot if unknown gait type
+    return GAIT_CONFIGS['trot']['phases'].get(leg_id, 0.0)
+
+
+def get_gait_duty_factor():
+    """Get duty factor for current gait type"""
+    global current_gait_type
+    
+    if current_gait_type in GAIT_CONFIGS:
+        return GAIT_CONFIGS[current_gait_type]['duty_factor']
+    return 0.5  # Default 50% duty factor
+
+
+def get_gait_parameters():
+    """Get all gait parameters for current gait type"""
+    global current_gait_type
+    
+    if current_gait_type in GAIT_CONFIGS:
+        config = GAIT_CONFIGS[current_gait_type]
+        return {
+            'num_steps': config['num_steps'],
+            'lift_height': config['lift_height'],
+            'step_length': config['step_length'],
+            'duty_factor': config['duty_factor'],
+            'smooth_factor': config.get('smooth_factor', 0.5)  # Default 0.5
+        }
+    # Fallback defaults
+    return {
+        'num_steps': TRAJECTORY_STEPS,
+        'lift_height': GAIT_LIFT_HEIGHT,
+        'step_length': GAIT_STEP_FORWARD,
+        'duty_factor': 0.5,
+        'smooth_factor': 0.5
+    }
 
 # ============================================================================
 # CONTROL FUNCTIONS
@@ -969,43 +1137,42 @@ def select_gait_mode():
     print("  🚶 SELECT GAIT MODE")
     print("="*70)
     print("  Available gait modes:")
-    print("    [1] TROT         - Diagonal pairs, fast & efficient (100mm/s) ⚡")
-    print("    [2] SMOOTH TROT  - Diagonal pairs, balanced & stable (80mm/s) ✨")
-    print("    [3] BACKWARD     - Smooth reverse motion (80mm/s) ⏪")
-    print("    [4] WALK         - Sequential legs, slow & stable (50mm/s) 🐢")
-    print("    [5] CRAWL        - Very slow & stable, safe mode (25mm/s) 🐌")
-    print("    [6] STAND        - Static pose testing")
+    print("  ┌────────────────────────────────────────────────────────────────┐")
+    print("  │  [1] TROT     - Diagonal pairs, fast & efficient   ⚡ 100mm/s │")
+    print("  │  [2] TROT OPT - High lift, 65% swing optimized     🚀 130mm/s │")
+    print("  │  [3] CRAWL    - One leg at a time, very stable     🐌  25mm/s │")
+    print("  │  [4] PACE     - Same-side legs together            🦒  80mm/s │")
+    print("  │  [5] BOUND    - Front/hind legs together           🐇 100mm/s │")
+    print("  │  [6] PRONK    - All legs together (hopping)        🦘  60mm/s │")
+    print("  │  [7] GALLOP   - Asymmetric running gait            🐎 120mm/s │")
+    print("  │  [8] STAND    - Static pose testing                🧍   0mm/s │")
+    print("  └────────────────────────────────────────────────────────────────┘")
     print("="*70)
     
+    gait_map = {
+        '1': 'trot',
+        '2': 'trot_opt',
+        '3': 'crawl',
+        '4': 'pace',
+        '5': 'bound',
+        '6': 'pronk',
+        '7': 'gallop',
+        '8': 'stand'
+    }
+    
     while True:
-        choice = input("  Select mode [1-6] (default: 1): ").strip()
+        choice = input("  Select mode [1-8] (default: 1): ").strip()
         
-        if choice == '' or choice == '1':
-            current_gait_type = 'trot'
-            print(f"  ✅ Selected: TROT gait (fast)")
-            break
-        elif choice == '2':
-            current_gait_type = 'smooth_trot'
-            print(f"  ✅ Selected: SMOOTH TROT gait (forward) ✨")
-            break
-        elif choice == '3':
-            current_gait_type = 'backward_trot'
-            print(f"  ✅ Selected: BACKWARD TROT gait (reverse) ⏪")
-            break
-        elif choice == '4':
-            current_gait_type = 'walk'
-            print(f"  ✅ Selected: WALK gait")
-            break
-        elif choice == '5':
-            current_gait_type = 'crawl'
-            print(f"  ✅ Selected: CRAWL gait")
-            break
-        elif choice == '6':
-            current_gait_type = 'stand'
-            print(f"  ✅ Selected: STAND mode")
+        if choice == '':
+            choice = '1'
+        
+        if choice in gait_map:
+            current_gait_type = gait_map[choice]
+            config = GAIT_CONFIGS[current_gait_type]
+            print(f"  ✅ Selected: {config['name']} {config['emoji']} - {config['description']}")
             break
         else:
-            print("  ❌ Invalid choice. Please select 1, 2, 3, 4, 5, or 6.")
+            print("  ❌ Invalid choice. Please select 1-8.")
     
     return current_gait_type
 
@@ -1013,18 +1180,20 @@ def change_gait_mode(new_mode):
     """Change gait mode during runtime"""
     global current_gait_type
     
-    if new_mode in ['trot', 'smooth_trot', 'backward_trot', 'walk', 'crawl', 'stand']:
+    if new_mode in GAIT_CONFIGS:
         old_mode = current_gait_type
         current_gait_type = new_mode
-        mode_names = {
-            'trot': 'TROT ⚡', 
-            'smooth_trot': 'SMOOTH TROT ✨',
-            'backward_trot': 'BACKWARD ⏪',
-            'walk': 'WALK 🐢', 
-            'crawl': 'CRAWL 🐌', 
-            'stand': 'STAND 🧍'
-        }
-        print(f"\n🔄 Gait mode changed: {mode_names.get(old_mode, old_mode)} → {mode_names.get(new_mode, new_mode)}")
+        
+        old_config = GAIT_CONFIGS.get(old_mode, {'name': old_mode.upper(), 'emoji': ''})
+        new_config = GAIT_CONFIGS[new_mode]
+        
+        old_name = f"{old_config['name']} {old_config['emoji']}"
+        new_name = f"{new_config['name']} {new_config['emoji']}"
+        
+        print(f"\n🔄 Gait mode changed: {old_name} → {new_name}")
+        print(f"   Phase offsets: FL={new_config['phases']['FL']:.2f}, FR={new_config['phases']['FR']:.2f}, "
+              f"RL={new_config['phases']['RL']:.2f}, RR={new_config['phases']['RR']:.2f}")
+        print(f"   Duty factor: {new_config['duty_factor']:.0%}")
         return True
     return False
 
@@ -1151,8 +1320,8 @@ def visualization_thread():
     }
     
     # Add control instructions
-    fig.text(0.5, 0.02, 'Controls: [SPACE] Start/Stop  |  [1/T] Trot  |  [2/M] Smooth  |  [3/B] Back  |  [4/W] Walk  |  [5/C] Crawl  |  [6/S] Stand  |  [R] Reset  |  [E] E-Stop', 
-             ha='center', fontsize=8.5, family='monospace',
+    fig.text(0.5, 0.02, 'Controls: [SPACE] Start/Stop | [1/T] Trot | [2/O] TrotOpt | [3/C] Crawl | [4/P] Pace | [5/B] Bound | [6/K] Pronk | [7/G] Gallop | [8/S] Stand | [R] Reset | [E] E-Stop', 
+             ha='center', fontsize=7, family='monospace',
              bbox=dict(boxstyle='round', facecolor='lightblue', alpha=0.8))
     
     def update_plot(frame):
@@ -1177,15 +1346,19 @@ def visualization_thread():
             emergency_stop_all()
         elif event.key == '1' or event.key == 't' or event.key == 'T':
             change_gait_mode('trot')
-        elif event.key == '2' or event.key == 'm' or event.key == 'M':
-            change_gait_mode('smooth_trot')
-        elif event.key == '3' or event.key == 'b' or event.key == 'B':
-            change_gait_mode('backward_trot')
-        elif event.key == '4' or event.key == 'w' or event.key == 'W':
-            change_gait_mode('walk')
-        elif event.key == '5' or event.key == 'c' or event.key == 'C':
+        elif event.key == '2' or event.key == 'o' or event.key == 'O':  # O for Optimized
+            change_gait_mode('trot_opt')
+        elif event.key == '3' or event.key == 'c' or event.key == 'C':
             change_gait_mode('crawl')
-        elif event.key == '6' or event.key == 's' or event.key == 'S':
+        elif event.key == '4' or event.key == 'p' or event.key == 'P':
+            change_gait_mode('pace')
+        elif event.key == '5' or event.key == 'b' or event.key == 'B':
+            change_gait_mode('bound')
+        elif event.key == '6' or event.key == 'k' or event.key == 'K':  # K for pronK/hop
+            change_gait_mode('pronk')
+        elif event.key == '7' or event.key == 'g' or event.key == 'G':
+            change_gait_mode('gallop')
+        elif event.key == '8' or event.key == 's' or event.key == 'S':
             change_gait_mode('stand')
     
     fig.canvas.mpl_connect('key_press_event', on_key_press)
@@ -1213,40 +1386,24 @@ def gait_control_loop(trajectories, prev_solutions):
     while gait_running:
         # Regenerate trajectories if gait mode changed
         if current_gait_type != last_gait_type:
-            print(f"\n🔄 Regenerating trajectories for {current_gait_type.upper()} mode...")
-            if current_gait_type == 'smooth_trot':
-                for leg_id in ['FR', 'FL', 'RR', 'RL']:
-                    mirror_x = leg_id in ['FR', 'RR']
-                    trajectories[leg_id] = generate_elliptical_trajectory(
-                        step_forward=GAIT_STEP_FORWARD,
-                        lift_height=SMOOTH_TROT_LIFT_HEIGHT,
-                        num_steps=SMOOTH_TROT_STEPS,
-                        stance_ratio=SMOOTH_TROT_STANCE_RATIO,
-                        reverse=False,
-                        mirror_x=mirror_x
-                    )
-            elif current_gait_type == 'backward_trot':
-                for leg_id in ['FR', 'FL', 'RR', 'RL']:
-                    mirror_x = leg_id in ['FR', 'RR']
-                    trajectories[leg_id] = generate_elliptical_trajectory(
-                        step_forward=GAIT_STEP_FORWARD,
-                        lift_height=SMOOTH_TROT_LIFT_HEIGHT,
-                        num_steps=SMOOTH_TROT_STEPS,
-                        stance_ratio=SMOOTH_TROT_STANCE_RATIO,
-                        reverse=True,
-                        mirror_x=mirror_x
-                    )
-            else:
-                for leg_id in ['FR', 'FL', 'RR', 'RL']:
-                    mirror_x = leg_id in ['FR', 'RR']
-                    trajectories[leg_id] = generate_elliptical_trajectory(
-                        step_forward=GAIT_STEP_FORWARD,
-                        lift_height=GAIT_LIFT_HEIGHT,
-                        num_steps=TRAJECTORY_STEPS,
-                        stance_ratio=0.5,
-                        reverse=False,
-                        mirror_x=mirror_x
-                    )
+            gait_params = get_gait_parameters()
+            gait_config = GAIT_CONFIGS.get(current_gait_type, GAIT_CONFIGS['trot'])
+            
+            print(f"\\n🔄 Regenerating trajectories for {gait_config['name']} {gait_config['emoji']} mode...")
+            print(f"   Steps={gait_params['num_steps']}, Lift={gait_params['lift_height']}mm, "
+                  f"Stride={gait_params['step_length']}mm, Duty={gait_params['duty_factor']:.0%}, Smooth={gait_params['smooth_factor']:.1f}")
+            
+            for leg_id in ['FR', 'FL', 'RR', 'RL']:
+                mirror_x = leg_id in ['FR', 'RR']
+                trajectories[leg_id] = generate_elliptical_trajectory(
+                    step_forward=gait_params['step_length'],
+                    lift_height=gait_params['lift_height'],
+                    num_steps=gait_params['num_steps'],
+                    stance_ratio=gait_params['duty_factor'],
+                    reverse=False,
+                    mirror_x=mirror_x,
+                    smooth_factor=gait_params['smooth_factor']
+                )
             last_gait_type = current_gait_type
             frame = 0  # Reset frame counter
         
@@ -1257,7 +1414,8 @@ def gait_control_loop(trajectories, prev_solutions):
         loop_start = time.perf_counter()
         
         # Get trajectory length based on current gait
-        traj_len = SMOOTH_TROT_STEPS if current_gait_type in ['smooth_trot', 'backward_trot'] else TRAJECTORY_STEPS
+        gait_params = get_gait_parameters()
+        traj_len = gait_params['num_steps']
         
         # Update each leg
         for leg_id in ['FR', 'FL', 'RR', 'RL']:
@@ -1516,43 +1674,33 @@ def main():
     print(f"\n🚶 Generating walking trajectories...")
     trajectories = {}
     
-    # Select trajectory generator based on gait type
-    if current_gait_type == 'smooth_trot':
-        for leg_id in ['FR', 'FL', 'RR', 'RL']:
-            mirror_x = leg_id in ['FR', 'RR']
-            trajectories[leg_id] = generate_elliptical_trajectory(
-                step_forward=GAIT_STEP_FORWARD,
-                lift_height=SMOOTH_TROT_LIFT_HEIGHT,
-                num_steps=SMOOTH_TROT_STEPS,
-                stance_ratio=SMOOTH_TROT_STANCE_RATIO,
-                reverse=False,
-                mirror_x=mirror_x
-            )
-        print(f"  Generated {SMOOTH_TROT_STEPS} waypoints per leg (asymmetric, stance={SMOOTH_TROT_STANCE_RATIO}, FORWARD, lift={SMOOTH_TROT_LIFT_HEIGHT}mm)")
-    elif current_gait_type == 'backward_trot':
-        for leg_id in ['FR', 'FL', 'RR', 'RL']:
-            mirror_x = leg_id in ['FR', 'RR']
-            trajectories[leg_id] = generate_elliptical_trajectory(
-                step_forward=GAIT_STEP_FORWARD,
-                lift_height=SMOOTH_TROT_LIFT_HEIGHT,
-                num_steps=SMOOTH_TROT_STEPS,
-                stance_ratio=SMOOTH_TROT_STANCE_RATIO,
-                reverse=True,
-                mirror_x=mirror_x
-            )
-        print(f"  Generated {SMOOTH_TROT_STEPS} waypoints per leg (asymmetric, stance={SMOOTH_TROT_STANCE_RATIO}, BACKWARD, lift={SMOOTH_TROT_LIFT_HEIGHT}mm)")
-    else:
-        for leg_id in ['FR', 'FL', 'RR', 'RL']:
-            mirror_x = leg_id in ['FR', 'RR']
-            trajectories[leg_id] = generate_elliptical_trajectory(
-                step_forward=GAIT_STEP_FORWARD,
-                lift_height=GAIT_LIFT_HEIGHT,
-                num_steps=TRAJECTORY_STEPS,
-                stance_ratio=0.5,
-                reverse=False,
-                mirror_x=mirror_x
-            )
-        print(f"  Generated {TRAJECTORY_STEPS} waypoints per leg (elliptical)")
+    # Get gait parameters from configuration
+    gait_params = get_gait_parameters()
+    gait_config = GAIT_CONFIGS.get(current_gait_type, GAIT_CONFIGS['trot'])
+    
+    num_steps = gait_params['num_steps']
+    lift_height = gait_params['lift_height']
+    step_length = gait_params['step_length']
+    duty_factor = gait_params['duty_factor']
+    smooth_factor = gait_params['smooth_factor']
+    
+    print(f"  Gait: {gait_config['name']} {gait_config['emoji']}")
+    print(f"  Parameters: steps={num_steps}, lift={lift_height}mm, stride={step_length}mm, duty={duty_factor:.0%}, smooth={smooth_factor:.1f}")
+    
+    # Generate trajectories for all legs
+    for leg_id in ['FR', 'FL', 'RR', 'RL']:
+        mirror_x = leg_id in ['FR', 'RR']
+        trajectories[leg_id] = generate_elliptical_trajectory(
+            step_forward=step_length,
+            lift_height=lift_height,
+            num_steps=num_steps,
+            stance_ratio=duty_factor,
+            reverse=False,
+            mirror_x=mirror_x,
+            smooth_factor=smooth_factor
+        )
+    
+    print(f"  Generated {num_steps} waypoints per leg")
     
     # --- Step 6: Initialize Home Position ---
     print(f"\n🏠 Moving to home position...")
