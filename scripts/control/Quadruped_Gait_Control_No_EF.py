@@ -194,15 +194,15 @@ GAIT_CONFIGS = {
     },
     'bound': {
         'name': 'BOUND',
-        'description': 'Front legs together, hind legs together',
+        'description': 'Front legs push, hind legs land (backward)',
         'emoji': '🐇',
-        'phases': {'FL': 0.0, 'FR': 0.0, 'RL': 0.5, 'RR': 0.5},
-        'duty_factor': 0.50,  # 50% stance - more stable
-        'num_steps': 40,      # More steps for smoothness
-        'lift_height': 18.0,  # Lower lift for gentler motion
-        'step_length': 50.0,
-        'speed_desc': '100mm/s',
-        'smooth_factor': 0.8  # Extra smoothing (0-1)
+        'phases': {'FL': 0.0, 'FR': 0.0, 'RL': 0.5, 'RR': 0.5},  # Front first = BACKWARD
+        'duty_factor': 0.50,  # 50% stance
+        'num_steps': 25,      # Cycle time: 500ms @ 50Hz = 25 steps (FASTER!)
+        'lift_height': 30.0,  # Step height: moderate
+        'step_length': 50.0,  # Step length: full stride
+        'speed_desc': '100mm/s BACKWARD',
+        'smooth_factor': 0.8  # Good smoothing for fast motion
     },
     'pronk': {
         'name': 'PRONK',
@@ -932,7 +932,8 @@ def generate_elliptical_trajectory(step_forward, lift_height, num_steps, stance_
             
             py = home_y  # Flat on ground
         
-        px = direction * (-step_forward * np.cos(t))
+        # FIXED: Removed negative sign for correct forward motion
+        px = direction * (step_forward * np.cos(t))
         if mirror_x:
             px = -px
         
